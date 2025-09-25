@@ -26,3 +26,9 @@ Description:
   cng4 is a information tool that supports both CLI and GUI modes.
   Use --mode to select the interface, and --script to provide a custom configuration file.
 ```
+
+# Implementation
+
+1. argument parsing
+2. handle panic
+3. messages
