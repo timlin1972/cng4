@@ -2,12 +2,14 @@ use std::fmt;
 
 use clap::{Parser, ValueEnum};
 
+const MODULE: &str = "arguments";
+const NAME: &str = "cng4";
 const DEFAULT_MODE: &str = "gui";
 const DEFAULT_SCRIPT: &str = "cfg.toml";
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "cng4",
+    name = NAME,
     version = env!("CARGO_PKG_VERSION"),
     about = concat!("Center Generation 4th v", env!("CARGO_PKG_VERSION")),
     after_help = "\
@@ -36,6 +38,10 @@ pub enum Mode {
 
 impl fmt::Display for Arguments {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "mode: {:?}, script: {}", self.mode, self.script)
+        write!(
+            f,
+            "[{MODULE}] mode: {:?}, script: {}",
+            self.mode, self.script
+        )
     }
 }

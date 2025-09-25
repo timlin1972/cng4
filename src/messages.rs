@@ -1,22 +1,70 @@
 use std::fmt;
 
-use tokio::sync::mpsc::{self, Sender};
+use clap::ValueEnum;
+use log::Level::{Info, Warn};
+use tokio::sync::mpsc::{Receiver, Sender};
 
+use crate::consts;
+use crate::plugins::{plugin_log, plugins_main};
 use crate::utils::time;
 
-const MSG_SIZE: usize = 4096;
+const MODULE: &str = "messages";
 
-#[derive(Debug)]
+#[derive(ValueEnum, Clone, Debug)]
+pub enum Action {
+    Log,
+    Insert,
+    Show,
+}
+
+impl fmt::Display for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let text = match self {
+            Action::Log => "log",
+            Action::Insert => "insert",
+            Action::Show => "show",
+        };
+        write!(f, "{text}")
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Cmd {
+    pub cmd: String,
+}
+
+impl fmt::Display for Cmd {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[CMD] {}", self.cmd)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Data {
+    Cmd(Cmd),
+}
+
+impl fmt::Display for Data {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Data::Cmd(cmd) => write!(f, "Cmd: {cmd}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Msg {
     pub ts: u64,
     pub plugin: String,
+    pub data: Data,
 }
 
 impl Msg {
-    pub fn new(plugin: &str) -> Self {
+    pub fn new(plugin: &str, data: Data) -> Self {
         Self {
             ts: time::ts(),
             plugin: plugin.to_string(),
+            data,
         }
     }
 }
@@ -25,27 +73,103 @@ impl fmt::Display for Msg {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "time: {}, plugin: {}",
+            "time: {}, plugin: {}, data: {}",
             time::ts_str(self.ts),
-            self.plugin
+            self.plugin,
+            self.data
         )
     }
 }
 
 pub struct Messages {
-    pub msg_tx: Sender<Msg>,
+    msg_tx: Sender<Msg>,
 }
 
 impl Messages {
-    pub async fn new() -> Self {
-        let (msg_tx, mut msg_rx) = mpsc::channel::<Msg>(MSG_SIZE);
+    pub async fn new(
+        msg_tx: Sender<Msg>,
+        mut msg_rx: Receiver<Msg>,
+        mut plugins: plugins_main::Plugins,
+    ) -> Self {
+        let myself = Self {
+            msg_tx: msg_tx.clone(),
+        };
+        myself.info(consts::NEW.to_string()).await;
 
         tokio::spawn(async move {
+            info(&msg_tx, MODULE, "  Starting to receive messages...").await;
             while let Some(msg) = msg_rx.recv().await {
-                println!("{msg}");
+                handle_msg(&msg, &msg_tx, &mut plugins).await;
             }
         });
 
-        Self { msg_tx }
+        myself
     }
+
+    async fn info(&self, msg: String) {
+        info(&self.msg_tx, MODULE, &msg).await;
+    }
+}
+
+async fn handle_msg(msg: &Msg, msg_tx: &Sender<Msg>, plugins: &mut plugins_main::Plugins) {
+    match msg.data {
+        Data::Cmd(_) => handle_msg_cmd(msg, msg_tx, plugins).await,
+    }
+}
+
+async fn handle_msg_cmd(msg: &Msg, msg_tx: &Sender<Msg>, plugins: &mut plugins_main::Plugins) {
+    let Data::Cmd(cmd) = &msg.data;
+    let cmd = &cmd.cmd;
+    let cmd = cmd
+        .split_once(consts::COMMENT)
+        .map(|(before, _)| before.trim_end())
+        .unwrap_or(cmd);
+    let cmd_parts: Vec<&str> = cmd.split_whitespace().collect();
+    if cmd_parts.is_empty() {
+        return;
+    }
+
+    let command = cmd_parts[0];
+
+    match command {
+        consts::P => plugins.handle_cmd(msg).await,
+        // "exit" | "q" | "quit" => {
+        //     let _ = shutdown_notify.send(());
+        // }
+        _ => warn(msg_tx, MODULE, &format!("Unknown command: {command}")).await,
+    }
+}
+
+pub async fn cmd(msg_tx: &Sender<Msg>, module: &str, cmd: &str) {
+    let _ = msg_tx
+        .send(Msg::new(
+            module,
+            Data::Cmd(Cmd {
+                cmd: cmd.to_string(),
+            }),
+        ))
+        .await;
+}
+
+async fn log(msg_tx: &Sender<Msg>, level: log::Level, module: &str, msg: &str) {
+    cmd(
+        msg_tx,
+        module,
+        &format!(
+            "{} {} {} {} '{msg}'",
+            consts::P,
+            plugin_log::MODULE,
+            Action::Log,
+            level
+        ),
+    )
+    .await;
+}
+
+pub async fn info(msg_tx: &Sender<Msg>, module: &str, msg: &str) {
+    log(msg_tx, Info, module, msg).await;
+}
+
+pub async fn warn(msg_tx: &Sender<Msg>, module: &str, msg: &str) {
+    log(msg_tx, Warn, module, msg).await;
 }

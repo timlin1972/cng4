@@ -32,3 +32,14 @@ Description:
 1. argument parsing
 2. handle panic
 3. messages
+4. log
+5. cfg
+
+# Configuration File
+
+- Format: TOML
+- Keys
+  - name
+  - plugins
+  - script_gui
+  - script_cli
