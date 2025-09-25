@@ -1,3 +1,10 @@
+mod arguments;
+
+use arguments::Arguments;
+use clap::Parser;
+
 fn main() {
-    println!("Hello, world!");
+    let args = Arguments::parse();
+
+    println!("Args: {args:?}");
 }

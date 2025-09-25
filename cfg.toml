@@ -1,0 +1,9 @@
+name = "cng4"
+
+script_gui = """
+# Custom GUI script
+"""
+
+script_cli = """
+# Custom CLI script
+"""
