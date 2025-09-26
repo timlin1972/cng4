@@ -15,6 +15,7 @@ pub enum Action {
     Log,
     Insert,
     Show,
+    Update,
 }
 
 impl fmt::Display for Action {
@@ -23,6 +24,7 @@ impl fmt::Display for Action {
             Action::Log => "log",
             Action::Insert => "insert",
             Action::Show => "show",
+            Action::Update => "update",
         };
         write!(f, "{text}")
     }
@@ -139,6 +141,10 @@ async fn handle_msg_cmd(msg: &Msg, msg_tx: &Sender<Msg>, plugins: &mut plugins_m
         _ => warn(msg_tx, MODULE, &format!("Unknown command: {command}")).await,
     }
 }
+
+//
+// Helper functions to send messages
+//
 
 pub async fn cmd(msg_tx: &Sender<Msg>, module: &str, cmd: &str) {
     let _ = msg_tx

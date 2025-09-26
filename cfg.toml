@@ -1,15 +1,17 @@
 name = "cng4"
 
-plugins = []
+plugins = ["system"]
 
 script_gui = """
 # Custom GUI script
 p plugins show
 p cfg show
+p system show
 """
 
 script_cli = """
 # Custom CLI script
 p plugins show
 p cfg show
+p system show
 """

@@ -34,8 +34,9 @@ Description:
 3. messages
 4. log
 5. cfg
+6. system
 
-# Configuration File
+# Configuration file
 
 - Format: TOML
 - Keys
@@ -43,3 +44,10 @@ Description:
   - plugins
   - script_gui
   - script_cli
+
+# How to add a plugin
+
+1. add plugin_xxx
+2. modify plugins/mod.rs
+3. modify plugins/plugins_main.rs (insert)
+4. modify cfg.toml

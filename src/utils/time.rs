@@ -1,5 +1,7 @@
-use chrono::{DateTime, Local};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use chrono::{DateTime, Local};
+use sysinfo::System;
 
 pub fn ts() -> u64 {
     SystemTime::now()
@@ -14,4 +16,24 @@ pub fn ts_str(ts: u64) -> String {
         .with_timezone(&Local);
 
     datetime_local.format("%H:%M:%S").to_string()
+}
+
+//
+// uptime
+//
+
+pub fn uptime() -> u64 {
+    System::uptime()
+}
+
+pub fn uptime_str(uptime: u64) -> String {
+    let mut uptime = uptime;
+    let days = uptime / 86400;
+    uptime -= days * 86400;
+    let hours = uptime / 3600;
+    uptime -= hours * 3600;
+    let minutes = uptime / 60;
+    let seconds = uptime % 60;
+
+    format!("{days}d {hours:02}:{minutes:02}:{seconds:02}")
 }

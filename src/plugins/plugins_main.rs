@@ -3,7 +3,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
 use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::{plugin_cfg, plugin_log};
+use crate::plugins::{plugin_cfg, plugin_log, plugin_system};
 use crate::utils::common;
 
 pub const MODULE: &str = "plugins";
@@ -45,6 +45,10 @@ impl Plugins {
             plugin_cfg::MODULE => Box::new(
                 plugin_cfg::Plugin::new(self.msg_tx.clone(), self.mode.clone(), &self.script).await,
             ) as Box<dyn Plugin + Send + Sync>,
+            plugin_system::MODULE => {
+                Box::new(plugin_system::Plugin::new(self.msg_tx.clone()).await)
+                    as Box<dyn Plugin + Send + Sync>
+            }
             _ => panic!("Unknown plugin: `{plugin}`"),
         };
 
