@@ -3,7 +3,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
 use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::{plugin_cfg, plugin_cli, plugin_log, plugin_system};
+use crate::plugins::{plugin_cfg, plugin_cli, plugin_log, plugin_system, plugin_web};
 use crate::utils::common;
 
 pub const MODULE: &str = "plugins";
@@ -39,6 +39,13 @@ impl Plugins {
     pub async fn insert(&mut self, plugin: &str) {
         self.info(format!("Inserting plugin: `{plugin}`")).await;
 
+        // return if plugin is already inserted
+        if self.get_plugin_mut(plugin).is_some() {
+            self.warn(format!("Plugin `{plugin}` is already inserted."))
+                .await;
+            return;
+        }
+
         let plugin = match plugin {
             plugin_log::MODULE => Box::new(plugin_log::Plugin::new(self.msg_tx.clone()).await)
                 as Box<dyn Plugin + Send + Sync>,
@@ -51,7 +58,12 @@ impl Plugins {
             }
             plugin_cli::MODULE => Box::new(plugin_cli::Plugin::new(self.msg_tx.clone()).await)
                 as Box<dyn Plugin + Send + Sync>,
-            _ => panic!("Unknown plugin: `{plugin}`"),
+            plugin_web::MODULE => Box::new(plugin_web::Plugin::new(self.msg_tx.clone()).await)
+                as Box<dyn Plugin + Send + Sync>,
+            _ => {
+                self.warn(format!("Unknown plugin name: `{plugin}`")).await;
+                return;
+            }
         };
 
         self.plugins.push(plugin);

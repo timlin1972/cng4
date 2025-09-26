@@ -11,6 +11,7 @@ use crate::plugins::plugins_main;
 use crate::utils::{common, time};
 
 pub const MODULE: &str = "cli";
+const STARTUP_DELAY_SECS: u64 = 3;
 
 #[derive(Debug)]
 pub struct Plugin {
@@ -87,6 +88,17 @@ fn prompt() {
 }
 
 async fn start_input_loop_cli(msg_tx: Sender<Msg>) {
+    msgs::info(
+        &msg_tx,
+        MODULE,
+        &format!(
+            "Waiting for {} seconds before starting CLI input loop...",
+            STARTUP_DELAY_SECS
+        ),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_secs(STARTUP_DELAY_SECS)).await;
+
     let stdin = io::stdin();
     let reader = BufReader::new(stdin);
     let mut lines = reader.lines();

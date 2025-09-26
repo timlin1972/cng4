@@ -1,6 +1,22 @@
+use std::env;
+use std::path::Path;
+
 use clap::ValueEnum;
 
 use crate::messages::Action;
+
+pub fn get_binary_name() -> String {
+    if let Ok(path) = env::current_exe()
+        && let Some(name) = path.file_name()
+    {
+        return name.to_string_lossy().into_owned();
+    }
+
+    panic!(
+        "Failed to get binary name from path: {:?}",
+        Path::new(&env::args().next().unwrap())
+    );
+}
 
 pub fn get_cmd_action(cmd: &str) -> Result<(Vec<String>, Action), String> {
     let cmd_parts = match shell_words::split(cmd) {

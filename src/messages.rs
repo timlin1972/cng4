@@ -2,7 +2,10 @@ use std::fmt;
 
 use clap::ValueEnum;
 use log::Level::{Info, Warn};
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::{
+    broadcast,
+    mpsc::{Receiver, Sender},
+};
 
 use crate::consts;
 use crate::plugins::{plugin_log, plugins_main};
@@ -90,6 +93,7 @@ pub struct Messages {
 impl Messages {
     pub async fn new(
         msg_tx: Sender<Msg>,
+        shutdown_tx: broadcast::Sender<()>,
         mut msg_rx: Receiver<Msg>,
         mut plugins: plugins_main::Plugins,
     ) -> Self {
@@ -101,7 +105,7 @@ impl Messages {
         tokio::spawn(async move {
             info(&msg_tx, MODULE, "  Starting to receive messages...").await;
             while let Some(msg) = msg_rx.recv().await {
-                handle_msg(&msg, &msg_tx, &mut plugins).await;
+                handle_msg(&msg, &msg_tx, &mut plugins, &shutdown_tx).await;
             }
         });
 
@@ -113,13 +117,23 @@ impl Messages {
     }
 }
 
-async fn handle_msg(msg: &Msg, msg_tx: &Sender<Msg>, plugins: &mut plugins_main::Plugins) {
+async fn handle_msg(
+    msg: &Msg,
+    msg_tx: &Sender<Msg>,
+    plugins: &mut plugins_main::Plugins,
+    shutdown_tx: &broadcast::Sender<()>,
+) {
     match msg.data {
-        Data::Cmd(_) => handle_msg_cmd(msg, msg_tx, plugins).await,
+        Data::Cmd(_) => handle_msg_cmd(msg, msg_tx, plugins, shutdown_tx).await,
     }
 }
 
-async fn handle_msg_cmd(msg: &Msg, msg_tx: &Sender<Msg>, plugins: &mut plugins_main::Plugins) {
+async fn handle_msg_cmd(
+    msg: &Msg,
+    msg_tx: &Sender<Msg>,
+    plugins: &mut plugins_main::Plugins,
+    shutdown_tx: &broadcast::Sender<()>,
+) {
     let Data::Cmd(cmd) = &msg.data;
     let cmd = &cmd.cmd;
     let cmd = cmd
@@ -136,8 +150,7 @@ async fn handle_msg_cmd(msg: &Msg, msg_tx: &Sender<Msg>, plugins: &mut plugins_m
     match command {
         consts::P => plugins.handle_cmd(msg).await,
         consts::Q | consts::QUIT | consts::EXIT => {
-            std::process::exit(0);
-            //     let _ = shutdown_notify.send(());
+            let _ = shutdown_tx.send(());
         }
         _ => warn(msg_tx, MODULE, &format!("Unknown command: {command}")).await,
     }

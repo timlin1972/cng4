@@ -30,12 +30,14 @@ Description:
 # Implementation
 
 1. argument parsing
-2. handle panic
-3. messages
-4. log
-5. cfg
-6. system
-7. cli
+1. handle panic
+1. messages
+1. log
+1. cfg
+1. system
+1. cli
+1. web
+1. music
 
 # Configuration file
 
@@ -48,6 +50,25 @@ Description:
 # How to add a plugin
 
 1. add plugin_xxx
-2. modify plugins/mod.rs
-3. modify plugins/plugins_main.rs (insert)
-4. modify cfg.toml
+1. modify plugins/mod.rs
+1. modify plugins/plugins_main.rs (insert)
+1. modify cfg.toml
+
+# Web APIs
+
+- /hello
+
+```
+curl http://localhost:9759
+```
+
+- /cmd
+
+```
+curl -X POST http://localhost:9759/cmd -H "Content-Type: application/json" -d '{"cmd": "p plugins show"}'
+```
+
+# Test
+
+- Web APIs
+  - `test/web.sh`
