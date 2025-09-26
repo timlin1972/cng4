@@ -66,5 +66,5 @@ async fn main() {
     // messages
     let _ = Messages::new(msg_tx.clone(), msg_rx, plugins).await;
 
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(100)).await;
 }

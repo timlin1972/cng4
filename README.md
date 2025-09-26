@@ -35,13 +35,13 @@ Description:
 4. log
 5. cfg
 6. system
+7. cli
 
 # Configuration file
 
 - Format: TOML
 - Keys
   - name
-  - plugins
   - script_gui
   - script_cli
 

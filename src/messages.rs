@@ -135,9 +135,10 @@ async fn handle_msg_cmd(msg: &Msg, msg_tx: &Sender<Msg>, plugins: &mut plugins_m
 
     match command {
         consts::P => plugins.handle_cmd(msg).await,
-        // "exit" | "q" | "quit" => {
-        //     let _ = shutdown_notify.send(());
-        // }
+        consts::Q | consts::QUIT | consts::EXIT => {
+            std::process::exit(0);
+            //     let _ = shutdown_notify.send(());
+        }
         _ => warn(msg_tx, MODULE, &format!("Unknown command: {command}")).await,
     }
 }

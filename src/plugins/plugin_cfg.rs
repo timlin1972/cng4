@@ -15,7 +15,6 @@ pub const MODULE: &str = "cfg";
 #[derive(Debug, Deserialize)]
 struct Config {
     name: String,
-    plugins: Vec<String>,
     script_gui: String,
     script_cli: String,
 }
@@ -63,20 +62,6 @@ impl Plugin {
             .unwrap_or_else(|_| panic!("Failed to parse TOML from: {}", &self.script));
 
         self.info(format!("  Name: {}", config.name)).await;
-
-        // insert plugins
-        self.info("  Starting to insert plugins...".to_string())
-            .await;
-        for plugin in config.plugins {
-            self.info(format!("    Inserting plugin: {plugin}")).await;
-            self.cmd(format!(
-                "{} {} {} {plugin}",
-                consts::P,
-                plugins_main::MODULE,
-                Action::Insert,
-            ))
-            .await;
-        }
 
         // run script
         let script = match self.mode {
