@@ -1,3 +1,4 @@
+use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
@@ -14,12 +15,12 @@ pub struct Plugin {
 }
 
 impl Plugin {
-    pub async fn new(msg_tx: Sender<Msg>) -> Self {
+    pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let myself = Self { msg_tx };
 
         myself.info(consts::NEW.to_string()).await;
 
-        myself
+        Ok(myself)
     }
 
     async fn info(&self, msg: String) {
@@ -32,6 +33,20 @@ impl Plugin {
         } else {
             println!("[{MODULE}] Incomplete log command: {cmd_parts:?}");
         }
+    }
+
+    async fn handle_cmd_show(&self) {
+        self.info(Action::Show.to_string()).await;
+    }
+
+    async fn handle_cmd_help(&self) {
+        self.info(Action::Help.to_string()).await;
+        self.info(format!("  {}", Action::Help)).await;
+        self.info(format!("  {}", Action::Show)).await;
+        self.info(format!("  {} <level> <message>", Action::Log))
+            .await;
+        self.info("    level: INFO, WARN, ERROR".to_string()).await;
+        self.info("    message: the log message".to_string()).await;
     }
 }
 
@@ -53,6 +68,8 @@ impl plugins_main::Plugin for Plugin {
         };
 
         match action {
+            Action::Help => self.handle_cmd_help().await,
+            Action::Show => self.handle_cmd_show().await,
             Action::Log => self.handle_cmd_log(msg.ts, &msg.plugin, cmd_parts).await,
             _ => println!("[{MODULE}] Unsupported action: {action}"),
         }

@@ -72,3 +72,18 @@ curl -X POST http://localhost:9759/cmd -H "Content-Type: application/json" -d '{
 
 - Web APIs
   - `test/web.sh`
+
+# yt-dlp
+
+## Example
+
+```
+yt-dlp --output "%(title)s.%(ext)s" --embed-thumbnail --add-metadata --extract-audio --audio-format mp3 --audio-quality 320K "https://www.youtube.com/watch?v=duZDsG3tvoA"
+```
+
+## Update
+
+```
+sudo wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp
+sudo chmod a+rx /usr/local/bin/yt-dlp
+```

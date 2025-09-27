@@ -1,4 +1,5 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
+use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 use tokio::sync::mpsc::Sender;
@@ -44,13 +45,13 @@ pub struct Plugin {
 }
 
 impl Plugin {
-    pub async fn new(msg_tx: Sender<Msg>) -> Self {
+    pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let mut myself = Self { msg_tx };
 
         myself.info(consts::NEW.to_string()).await;
         myself.init().await;
 
-        myself
+        Ok(myself)
     }
 
     async fn info(&self, msg: String) {
@@ -90,6 +91,12 @@ impl Plugin {
     async fn handle_cmd_show(&self) {
         self.info(Action::Show.to_string()).await;
     }
+
+    async fn handle_cmd_help(&self) {
+        self.info(Action::Help.to_string()).await;
+        self.info(format!("  {}", Action::Help)).await;
+        self.info(format!("  {}", Action::Show)).await;
+    }
 }
 
 #[async_trait]
@@ -110,6 +117,7 @@ impl plugins_main::Plugin for Plugin {
         };
 
         match action {
+            Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             _ => {
                 self.warn(format!("[{MODULE}] Unsupported action: {action}"))

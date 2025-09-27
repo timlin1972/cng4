@@ -1,5 +1,6 @@
 use std::fs;
 
+use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 use tokio::sync::mpsc::Sender;
@@ -27,7 +28,7 @@ pub struct Plugin {
 }
 
 impl Plugin {
-    pub async fn new(msg_tx: Sender<Msg>, mode: Mode, script: &str) -> Self {
+    pub async fn new(msg_tx: Sender<Msg>, mode: Mode, script: &str) -> Result<Self> {
         let myself = Self {
             msg_tx,
             mode,
@@ -37,7 +38,7 @@ impl Plugin {
         myself.info(consts::NEW.to_string()).await;
         myself.init().await;
 
-        myself
+        Ok(myself)
     }
 
     async fn info(&self, msg: String) {
@@ -87,6 +88,12 @@ impl Plugin {
         self.info(format!("  Mode: {:?}", self.mode)).await;
         self.info(format!("  Script: {}", self.script)).await;
     }
+
+    async fn handle_cmd_help(&self) {
+        self.info(Action::Help.to_string()).await;
+        self.info(format!("  {}", Action::Help)).await;
+        self.info(format!("  {}", Action::Show)).await;
+    }
 }
 
 #[async_trait]
@@ -107,6 +114,7 @@ impl plugins_main::Plugin for Plugin {
         };
 
         match action {
+            Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             _ => {
                 self.warn(format!("[{MODULE}] Unsupported action: {action}"))

@@ -1,28 +1,29 @@
-use std::io::Write;
-
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::io::{self, AsyncBufReadExt, BufReader};
 use tokio::sync::mpsc::Sender;
-use tokio::time::Duration;
 
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::plugins_main;
-use crate::utils::{common, time};
+use crate::utils::{common, ffmpeg, yt_dlp};
 
-pub const MODULE: &str = "cli";
-const STARTUP_DELAY_SECS: u64 = 3;
+pub const MODULE: &str = "music";
 
 #[derive(Debug)]
 pub struct Plugin {
     msg_tx: Sender<Msg>,
+    is_available: bool,
+    yt_dlp: yt_dlp::YtDlp,
+    ffmpeg: ffmpeg::Ffmpeg,
 }
 
 impl Plugin {
     pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
-        let myself = Self {
+        let mut myself = Self {
             msg_tx: msg_tx.clone(),
+            is_available: false,
+            yt_dlp: yt_dlp::YtDlp::new(msg_tx.clone(), consts::NAS_MUSIC_FOLDER).await?,
+            ffmpeg: ffmpeg::Ffmpeg::new(msg_tx.clone()).await?,
         };
 
         myself.info(consts::NEW.to_string()).await;
@@ -31,9 +32,9 @@ impl Plugin {
         Ok(myself)
     }
 
-    async fn init(&self) {
+    async fn init(&mut self) {
         self.info(consts::INIT.to_string()).await;
-        tokio::spawn(start_input_loop_cli(self.msg_tx.clone()));
+        self.is_available = self.yt_dlp.is_available && self.ffmpeg.is_available;
     }
 
     async fn info(&self, msg: String) {
@@ -46,12 +47,32 @@ impl Plugin {
 
     async fn handle_cmd_show(&self) {
         self.info(Action::Show.to_string()).await;
+        self.info(format!("  available: {}", self.is_available))
+            .await;
+        self.yt_dlp.handle_cmd_show().await;
+        self.ffmpeg.handle_cmd_show().await;
+    }
+
+    async fn handle_cmd_download(&mut self, cmd_parts: &[String]) {
+        if !self.is_available {
+            self.warn("Not available".to_string()).await;
+            return;
+        }
+
+        if let Some(url) = cmd_parts.get(3) {
+            self.yt_dlp.download(url).await;
+        } else {
+            self.warn(format!("Missing URL for download command: `{cmd_parts:?}`"))
+                .await;
+        }
     }
 
     async fn handle_cmd_help(&self) {
         self.info(Action::Help.to_string()).await;
         self.info(format!("  {}", Action::Help)).await;
         self.info(format!("  {}", Action::Show)).await;
+        self.info(format!("  {} <url>", Action::Download)).await;
+        self.info("    url: the URL to download".to_string()).await;
     }
 }
 
@@ -64,7 +85,7 @@ impl plugins_main::Plugin for Plugin {
     async fn handle_cmd(&mut self, msg: &Msg) {
         let Data::Cmd(cmd) = &msg.data;
 
-        let (_cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
+        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
             Ok(action) => action,
             Err(err) => {
                 self.warn(err).await;
@@ -75,57 +96,10 @@ impl plugins_main::Plugin for Plugin {
         match action {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
+            Action::Download => self.handle_cmd_download(&cmd_parts).await,
             _ => {
                 self.warn(format!("[{MODULE}] Unsupported action: {action}"))
                     .await
-            }
-        }
-    }
-}
-
-//
-// CLI input handling
-//
-
-fn prompt() {
-    print!("{} > ", time::ts_str(time::ts()));
-    std::io::stdout()
-        .flush()
-        .map_err(|e| e.to_string())
-        .expect("Failed to flush");
-}
-
-async fn start_input_loop_cli(msg_tx: Sender<Msg>) {
-    msgs::info(
-        &msg_tx,
-        MODULE,
-        &format!(
-            "Waiting for {} seconds before starting CLI input loop...",
-            STARTUP_DELAY_SECS
-        ),
-    )
-    .await;
-    tokio::time::sleep(Duration::from_secs(STARTUP_DELAY_SECS)).await;
-
-    let stdin = io::stdin();
-    let reader = BufReader::new(stdin);
-    let mut lines = reader.lines();
-
-    loop {
-        prompt();
-        tokio::select! {
-            maybe_line = lines.next_line() => {
-                match maybe_line {
-                    Ok(Some(line)) => {
-                        msgs::cmd(&msg_tx, MODULE, &line).await;
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                    }
-                    Ok(None) => break, // EOF
-                    Err(e) => {
-                        msgs::warn(&msg_tx, MODULE, &format!("Failed to read input. Err: {e}")).await;
-                        break;
-                    }
-                }
             }
         }
     }

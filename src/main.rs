@@ -50,8 +50,8 @@ async fn main() {
     let mut plugins = Plugins::new(msg_tx.clone(), args.mode, &args.script).await;
 
     // insert minimum set of plugins
-    plugins.insert(plugin_log::MODULE).await;
-    plugins.insert(plugin_cfg::MODULE).await;
+    let _ = plugins.insert(plugin_log::MODULE).await;
+    let _ = plugins.insert(plugin_cfg::MODULE).await;
 
     // messages
     let _ = Messages::new(msg_tx.clone(), shutdown_tx, msg_rx, plugins).await;

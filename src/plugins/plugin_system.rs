@@ -1,3 +1,4 @@
+use anyhow::Result;
 use async_trait::async_trait;
 use sysinfo::Networks;
 use tokio::sync::mpsc::Sender;
@@ -40,7 +41,7 @@ pub struct Plugin {
 }
 
 impl Plugin {
-    pub async fn new(msg_tx: Sender<Msg>) -> Self {
+    pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let myself = Self {
             msg_tx: msg_tx.clone(),
             system_info: SystemInfo::new(),
@@ -66,7 +67,7 @@ impl Plugin {
             }
         });
 
-        myself
+        Ok(myself)
     }
 
     async fn info(&self, msg: String) {
@@ -97,6 +98,13 @@ impl Plugin {
         self.info(Action::Update.to_string()).await;
         self.system_info.update();
     }
+
+    async fn handle_cmd_help(&self) {
+        self.info(Action::Help.to_string()).await;
+        self.info(format!("  {}", Action::Help)).await;
+        self.info(format!("  {}", Action::Show)).await;
+        self.info(format!("  {}", Action::Update)).await;
+    }
 }
 
 #[async_trait]
@@ -117,6 +125,7 @@ impl plugins_main::Plugin for Plugin {
         };
 
         match action {
+            Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             Action::Update => self.handle_cmd_update().await,
             _ => {

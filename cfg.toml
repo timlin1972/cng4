@@ -4,6 +4,7 @@ script_gui = """
 # Custom GUI script
 p plugins insert system
 p plugins insert web
+p plugins insert music
 p plugins insert cli
 """
 
@@ -11,5 +12,6 @@ script_cli = """
 # Custom CLI script
 p plugins insert system
 p plugins insert web
+p plugins insert music
 p plugins insert cli
 """

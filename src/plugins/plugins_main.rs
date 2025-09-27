@@ -1,9 +1,11 @@
+use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
+use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::{plugin_cfg, plugin_cli, plugin_log, plugin_system, plugin_web};
+use crate::plugins::{plugin_cfg, plugin_cli, plugin_log, plugin_music, plugin_system, plugin_web};
 use crate::utils::common;
 
 pub const MODULE: &str = "plugins";
@@ -36,45 +38,46 @@ impl Plugins {
         }
     }
 
-    pub async fn insert(&mut self, plugin: &str) {
+    pub async fn insert(&mut self, plugin: &str) -> Result<()> {
         self.info(format!("Inserting plugin: `{plugin}`")).await;
 
         // return if plugin is already inserted
         if self.get_plugin_mut(plugin).is_some() {
-            self.warn(format!("Plugin `{plugin}` is already inserted."))
-                .await;
-            return;
+            return Err(anyhow::anyhow!("Plugin `{plugin}` is already inserted."));
         }
 
         let plugin = match plugin {
-            plugin_log::MODULE => Box::new(plugin_log::Plugin::new(self.msg_tx.clone()).await)
+            plugin_log::MODULE => Box::new(plugin_log::Plugin::new(self.msg_tx.clone()).await?)
                 as Box<dyn Plugin + Send + Sync>,
             plugin_cfg::MODULE => Box::new(
-                plugin_cfg::Plugin::new(self.msg_tx.clone(), self.mode.clone(), &self.script).await,
+                plugin_cfg::Plugin::new(self.msg_tx.clone(), self.mode.clone(), &self.script)
+                    .await?,
             ) as Box<dyn Plugin + Send + Sync>,
             plugin_system::MODULE => {
-                Box::new(plugin_system::Plugin::new(self.msg_tx.clone()).await)
+                Box::new(plugin_system::Plugin::new(self.msg_tx.clone()).await?)
                     as Box<dyn Plugin + Send + Sync>
             }
-            plugin_cli::MODULE => Box::new(plugin_cli::Plugin::new(self.msg_tx.clone()).await)
+            plugin_cli::MODULE => Box::new(plugin_cli::Plugin::new(self.msg_tx.clone()).await?)
                 as Box<dyn Plugin + Send + Sync>,
-            plugin_web::MODULE => Box::new(plugin_web::Plugin::new(self.msg_tx.clone()).await)
+            plugin_web::MODULE => Box::new(plugin_web::Plugin::new(self.msg_tx.clone()).await?)
                 as Box<dyn Plugin + Send + Sync>,
-            _ => {
-                self.warn(format!("Unknown plugin name: `{plugin}`")).await;
-                return;
-            }
+            plugin_music::MODULE => Box::new(plugin_music::Plugin::new(self.msg_tx.clone()).await?)
+                as Box<dyn Plugin + Send + Sync>,
+            _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),
         };
 
         self.plugins.push(plugin);
+        Ok(())
     }
 
     async fn handle_cmd_insert(&mut self, cmd_parts: Vec<String>) {
         if let Some(plugin) = cmd_parts.get(3) {
-            self.insert(plugin).await;
+            if let Err(e) = self.insert(plugin).await {
+                self.warn(e.to_string()).await;
+            }
         } else {
             self.warn(format!(
-                "Missing plugin name for insert command: {cmd_parts:?}"
+                "Missing plugin name for insert command: `{cmd_parts:?}`"
             ))
             .await;
         }
@@ -84,6 +87,25 @@ impl Plugins {
         let plugin_names: Vec<String> = self.plugins.iter().map(|p| p.name().to_string()).collect();
         self.info(Action::Show.to_string()).await;
         self.info(format!("  Plugins: {plugin_names:?}")).await;
+        for plugin in &self.plugins {
+            self.cmd(format!("{} {} {}", consts::P, plugin.name(), Action::Show))
+                .await;
+        }
+    }
+
+    async fn handle_cmd_help(&self) {
+        self.info(Action::Help.to_string()).await;
+        self.info(format!("  {}", Action::Help)).await;
+        self.info(format!("  {}", Action::Show)).await;
+        self.info(format!("  {} <plugin>", Action::Insert)).await;
+        self.info("  Available plugins:".to_string()).await;
+        for plugin in &self.plugins {
+            self.info(format!("    - {}", plugin.name())).await;
+        }
+        for plugin in &self.plugins {
+            self.cmd(format!("{} {} {}", consts::P, plugin.name(), Action::Help))
+                .await;
+        }
     }
 
     async fn my_handle_cmd(&mut self, msg: &Msg) {
@@ -98,10 +120,15 @@ impl Plugins {
         };
 
         match action {
-            Action::Insert => self.handle_cmd_insert(cmd_parts).await,
+            Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
+            Action::Insert => self.handle_cmd_insert(cmd_parts).await,
             _ => self.warn(format!("Unsupported action: {action}")).await,
         }
+    }
+
+    async fn cmd(&self, msg: String) {
+        msgs::cmd(&self.msg_tx, MODULE, &msg).await;
     }
 
     async fn info(&self, msg: String) {

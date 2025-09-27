@@ -19,6 +19,8 @@ pub enum Action {
     Insert,
     Show,
     Update,
+    Download,
+    Help,
 }
 
 impl fmt::Display for Action {
@@ -28,6 +30,8 @@ impl fmt::Display for Action {
             Action::Insert => "insert",
             Action::Show => "show",
             Action::Update => "update",
+            Action::Download => "download",
+            Action::Help => "help",
         };
         write!(f, "{text}")
     }
