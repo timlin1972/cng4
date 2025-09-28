@@ -27,6 +27,26 @@ Description:
   Use --mode to select the interface, and --script to provide a custom configuration file.
 ```
 
+# Code flow
+
+```
+* handle panic
+* create channels
+  - msg
+  - shutdown
+* startup messages
+* hanele args
+* plugins
+* insert plugin log
+  - new
+* insert plugin cfg
+  - new
+  - init
+    - name
+    - running scripts
+      - inser plugin panels
+```
+
 # Implementation
 
 1. argument parsing
@@ -38,6 +58,7 @@ Description:
 1. cli
 1. web
 1. music
+1. panels
 
 # Configuration file
 

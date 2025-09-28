@@ -2,10 +2,19 @@ name = "cng4"
 
 script_gui = """
 # Custom GUI script
+
+# for GUI mode
+p plugins insert panels
+
+# - log
+p panels create log log 0 0 50 60
+p log gui log
+
 p plugins insert system
 p plugins insert web
 p plugins insert music
-p plugins insert cli
+# p plugins insert cli
+p panels show
 """
 
 script_cli = """

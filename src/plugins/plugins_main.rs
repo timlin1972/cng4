@@ -1,11 +1,13 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::arguments::Mode;
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::{plugin_cfg, plugin_cli, plugin_log, plugin_music, plugin_system, plugin_web};
+use crate::plugins::{
+    plugin_cfg, plugin_cli, plugin_log, plugin_music, plugin_panels, plugin_system, plugin_web,
+};
 use crate::utils::common;
 
 pub const MODULE: &str = "plugins";
@@ -23,16 +25,23 @@ pub trait Plugin {
 
 pub struct Plugins {
     plugins: Vec<Box<dyn Plugin + Send + Sync>>,
-    msg_tx: tokio::sync::mpsc::Sender<Msg>,
+    msg_tx: mpsc::Sender<Msg>,
+    shutdown_tx: broadcast::Sender<()>,
     mode: Mode,
     script: String,
 }
 
 impl Plugins {
-    pub async fn new(msg_tx: Sender<Msg>, mode: Mode, script: &str) -> Self {
+    pub async fn new(
+        msg_tx: mpsc::Sender<Msg>,
+        shutdown_tx: broadcast::Sender<()>,
+        mode: Mode,
+        script: &str,
+    ) -> Self {
         Self {
             plugins: Vec::new(),
             msg_tx,
+            shutdown_tx,
             mode,
             script: script.to_string(),
         }
@@ -47,8 +56,10 @@ impl Plugins {
         }
 
         let plugin = match plugin {
-            plugin_log::MODULE => Box::new(plugin_log::Plugin::new(self.msg_tx.clone()).await?)
-                as Box<dyn Plugin + Send + Sync>,
+            plugin_log::MODULE => {
+                Box::new(plugin_log::Plugin::new(self.msg_tx.clone(), self.mode.clone()).await?)
+                    as Box<dyn Plugin + Send + Sync>
+            }
             plugin_cfg::MODULE => Box::new(
                 plugin_cfg::Plugin::new(self.msg_tx.clone(), self.mode.clone(), &self.script)
                     .await?,
@@ -63,6 +74,9 @@ impl Plugins {
                 as Box<dyn Plugin + Send + Sync>,
             plugin_music::MODULE => Box::new(plugin_music::Plugin::new(self.msg_tx.clone()).await?)
                 as Box<dyn Plugin + Send + Sync>,
+            plugin_panels::MODULE => Box::new(
+                plugin_panels::Plugin::new(self.msg_tx.clone(), self.shutdown_tx.clone()).await?,
+            ) as Box<dyn Plugin + Send + Sync>,
             _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),
         };
 

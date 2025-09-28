@@ -73,7 +73,7 @@ impl Plugin {
         self.info(format!("  Running scripts for mode: {:?}", self.mode))
             .await;
         for line in script.lines() {
-            self.info(format!("    {line}")).await;
+            // self.info(format!("    {line}")).await;
 
             let line = line.trim();
             if line.is_empty() {

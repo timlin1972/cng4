@@ -29,7 +29,7 @@ pub fn get_cmd_action(cmd: &str) -> Result<(Vec<String>, Action), String> {
         None => return Err(format!("Incomplete command: `{cmd}`")),
     };
 
-    let action = match Action::from_str(action, true) {
+    let action = match Action::from_str(action, false) {
         Ok(action) => action,
         Err(_) => return Err(format!("Unknown action: `{action}` for command: `{cmd}`")),
     };

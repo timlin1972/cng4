@@ -21,6 +21,9 @@ pub enum Action {
     Update,
     Download,
     Help,
+    Create,
+    Gui,
+    Push,
 }
 
 impl fmt::Display for Action {
@@ -32,6 +35,9 @@ impl fmt::Display for Action {
             Action::Update => "update",
             Action::Download => "download",
             Action::Help => "help",
+            Action::Create => "create",
+            Action::Gui => "gui",
+            Action::Push => "push",
         };
         write!(f, "{text}")
     }
@@ -150,7 +156,6 @@ async fn handle_msg_cmd(
     }
 
     let command = cmd_parts[0];
-
     match command {
         consts::P => plugins.handle_cmd(msg).await,
         consts::Q | consts::QUIT | consts::EXIT => {

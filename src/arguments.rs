@@ -30,10 +30,20 @@ pub struct Arguments {
     pub script: String,
 }
 
-#[derive(ValueEnum, Clone, Debug)]
+#[derive(ValueEnum, Clone, Debug, PartialEq)]
 pub enum Mode {
     Cli,
     Gui,
+}
+
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mode_str = match self {
+            Mode::Cli => "cli",
+            Mode::Gui => "gui",
+        };
+        write!(f, "{mode_str}")
+    }
 }
 
 impl fmt::Display for Arguments {
