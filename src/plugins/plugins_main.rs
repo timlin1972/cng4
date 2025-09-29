@@ -7,7 +7,7 @@ use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::{
     plugin_cfg, plugin_cli, plugin_devices, plugin_gui, plugin_infos, plugin_log, plugin_mqtt,
-    plugin_music, plugin_panels, plugin_system, plugin_web,
+    plugin_music, plugin_panels, plugin_script, plugin_system, plugin_web,
 };
 use crate::utils::common;
 
@@ -61,10 +61,8 @@ impl Plugins {
                 Box::new(plugin_log::Plugin::new(self.msg_tx.clone(), self.mode.clone()).await?)
                     as Box<dyn Plugin + Send + Sync>
             }
-            plugin_cfg::MODULE => Box::new(
-                plugin_cfg::Plugin::new(self.msg_tx.clone(), self.mode.clone(), &self.script)
-                    .await?,
-            ) as Box<dyn Plugin + Send + Sync>,
+            plugin_cfg::MODULE => Box::new(plugin_cfg::Plugin::new(self.msg_tx.clone()).await?)
+                as Box<dyn Plugin + Send + Sync>,
             plugin_system::MODULE => {
                 Box::new(plugin_system::Plugin::new(self.msg_tx.clone()).await?)
                     as Box<dyn Plugin + Send + Sync>
@@ -90,11 +88,15 @@ impl Plugins {
                 .await?,
             ) as Box<dyn Plugin + Send + Sync>,
             plugin_devices::MODULE => {
-                Box::new(plugin_devices::Plugin::new(self.msg_tx.clone()).await?)
+                Box::new(plugin_devices::Plugin::new(self.msg_tx.clone(), self.mode.clone()).await?)
                     as Box<dyn Plugin + Send + Sync>
             }
             plugin_infos::MODULE => Box::new(plugin_infos::Plugin::new(self.msg_tx.clone()).await?)
                 as Box<dyn Plugin + Send + Sync>,
+            plugin_script::MODULE => Box::new(
+                plugin_script::Plugin::new(self.msg_tx.clone(), self.mode.clone(), &self.script)
+                    .await?,
+            ) as Box<dyn Plugin + Send + Sync>,
             _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),
         };
 

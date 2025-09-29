@@ -5,7 +5,7 @@ use clap::{Parser, ValueEnum};
 const MODULE: &str = "arguments";
 const NAME: &str = "cng4";
 const DEFAULT_MODE: &str = "gui";
-const DEFAULT_SCRIPT: &str = "cfg.toml";
+const DEFAULT_SCRIPT: &str = "script.toml";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -16,7 +16,7 @@ const DEFAULT_SCRIPT: &str = "cfg.toml";
 Examples:
   cng4 --mode cli --script custom_config.toml
   cng4 --mode gui
-  cng4                 # Runs in GUI mode with cfg.toml
+  cng4                 # Runs in GUI mode with script.toml
 
 Description:
   cng4 is a information tool that supports both CLI and GUI modes.

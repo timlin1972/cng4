@@ -13,7 +13,7 @@ mod utils;
 
 use arguments::Arguments;
 use messages::{self as msgs, Messages, Msg};
-use plugins::{plugin_cfg, plugin_log, plugins_main::Plugins};
+use plugins::{plugin_cfg, plugin_log, plugin_script, plugins_main::Plugins};
 use utils::common;
 
 const MODULE: &str = "main";
@@ -54,6 +54,7 @@ async fn main() {
     // insert minimum set of plugins
     let _ = plugins.insert(plugin_log::MODULE).await;
     let _ = plugins.insert(plugin_cfg::MODULE).await;
+    let _ = plugins.insert(plugin_script::MODULE).await;
 
     // messages
     let _ = Messages::new(msg_tx.clone(), shutdown_tx.clone(), msg_rx, plugins).await;

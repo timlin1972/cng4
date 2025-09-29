@@ -1,5 +1,3 @@
-name = "cng4"
-
 script_gui = """
 # Custom GUI script
 

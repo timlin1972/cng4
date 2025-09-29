@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
+use crate::arguments::Mode;
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, DeviceKey, InfoKey, Msg};
 use crate::plugins::{plugin_infos, plugin_system, plugins_main};
@@ -24,13 +25,15 @@ pub struct DevInfo {
 #[derive(Debug)]
 pub struct Plugin {
     msg_tx: Sender<Msg>,
+    mode: Mode,
     devices: Vec<DevInfo>,
 }
 
 impl Plugin {
-    pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
+    pub async fn new(msg_tx: Sender<Msg>, mode: Mode) -> Result<Self> {
         let myself = Self {
             msg_tx,
+            mode,
             devices: Vec::new(),
         };
 
@@ -127,15 +130,17 @@ impl Plugin {
             }
 
             // update infos
-            self.cmd(format!(
-                "{} {} {} {} {} {name} {value}",
-                consts::P,
-                plugin_infos::MODULE,
-                Action::Update,
-                InfoKey::Devices,
-                DeviceKey::Onboard,
-            ))
-            .await;
+            if self.mode == Mode::Gui {
+                self.cmd(format!(
+                    "{} {} {} {} {} {name} {value}",
+                    consts::P,
+                    plugin_infos::MODULE,
+                    Action::Update,
+                    InfoKey::Devices,
+                    DeviceKey::Onboard,
+                ))
+                .await;
+            }
 
             // // update nas
             // self.cmd(
@@ -154,15 +159,17 @@ impl Plugin {
             device.version = Some(value.to_string());
 
             // update infos
-            self.cmd(format!(
-                "{} {} {} {} {} {name} {value}",
-                consts::P,
-                plugin_infos::MODULE,
-                Action::Update,
-                InfoKey::Devices,
-                DeviceKey::Version,
-            ))
-            .await;
+            if self.mode == Mode::Gui {
+                self.cmd(format!(
+                    "{} {} {} {} {} {name} {value}",
+                    consts::P,
+                    plugin_infos::MODULE,
+                    Action::Update,
+                    InfoKey::Devices,
+                    DeviceKey::Version,
+                ))
+                .await;
+            }
         }
     }
 
@@ -174,15 +181,17 @@ impl Plugin {
             device.tailscale_ip = Some(value.to_string());
 
             // update infos
-            self.cmd(format!(
-                "{} {} {} {} {} {name} {value}",
-                consts::P,
-                plugin_infos::MODULE,
-                Action::Update,
-                InfoKey::Devices,
-                DeviceKey::TailscaleIp,
-            ))
-            .await;
+            if self.mode == Mode::Gui {
+                self.cmd(format!(
+                    "{} {} {} {} {} {name} {value}",
+                    consts::P,
+                    plugin_infos::MODULE,
+                    Action::Update,
+                    InfoKey::Devices,
+                    DeviceKey::TailscaleIp,
+                ))
+                .await;
+            }
 
             // // update nas
             // self.cmd(
@@ -205,15 +214,17 @@ impl Plugin {
             }
 
             // update infos
-            self.cmd(format!(
-                "{} {} {} {} {} {name} {value}",
-                consts::P,
-                plugin_infos::MODULE,
-                Action::Update,
-                InfoKey::Devices,
-                DeviceKey::Temperature,
-            ))
-            .await;
+            if self.mode == Mode::Gui {
+                self.cmd(format!(
+                    "{} {} {} {} {} {name} {value}",
+                    consts::P,
+                    plugin_infos::MODULE,
+                    Action::Update,
+                    InfoKey::Devices,
+                    DeviceKey::Temperature,
+                ))
+                .await;
+            }
         }
     }
 
@@ -226,15 +237,17 @@ impl Plugin {
             device.app_uptime = app_uptime;
 
             // update infos
-            self.cmd(format!(
-                "{} {} {} {} {} {name} {value}",
-                consts::P,
-                plugin_infos::MODULE,
-                Action::Update,
-                InfoKey::Devices,
-                DeviceKey::AppUptime,
-            ))
-            .await;
+            if self.mode == Mode::Gui {
+                self.cmd(format!(
+                    "{} {} {} {} {} {name} {value}",
+                    consts::P,
+                    plugin_infos::MODULE,
+                    Action::Update,
+                    InfoKey::Devices,
+                    DeviceKey::AppUptime,
+                ))
+                .await;
+            }
         }
     }
 

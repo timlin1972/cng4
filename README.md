@@ -63,12 +63,20 @@ Description:
 1. mqtt
 1. devices
 1. infos
+1. script
 
 # Configuration file
 
+- Fix filenname: cfg.toml
 - Format: TOML
 - Keys
   - name
+
+# Script file
+
+- Fix filenname: script.toml
+- Format: TOML
+- Keys
   - script_gui
   - script_cli
 

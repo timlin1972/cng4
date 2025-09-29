@@ -7,6 +7,7 @@ pub mod plugin_log;
 pub mod plugin_mqtt;
 pub mod plugin_music;
 pub mod plugin_panels;
+pub mod plugin_script;
 pub mod plugin_system;
 pub mod plugin_web;
 pub mod plugins_main;
