@@ -11,12 +11,11 @@ use ratatui::{
 use tokio::sync::{broadcast, mpsc};
 
 use crate::consts;
-use crate::messages::{self as msgs, Action, Data, Msg};
+use crate::messages::{self as msgs, Action, Data, Key, Msg};
 use crate::plugins::plugins_main;
 use crate::utils::common;
 
 pub const MODULE: &str = "panels";
-const CURSOR_PANEL_TITLE: &str = "command";
 const MAX_OUTPUT_LEN: usize = 300;
 
 #[derive(Debug)]
@@ -76,6 +75,10 @@ impl Plugin {
 
             ratatui::restore();
         });
+    }
+
+    async fn cmd(&self, msg: String) {
+        msgs::cmd(&self.msg_tx, MODULE, &msg).await;
     }
 
     async fn info(&self, msg: String) {
@@ -156,7 +159,7 @@ impl Plugin {
         self.terminal = Some(terminal);
     }
 
-    async fn handle_cmd_push(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_cmd_output_push(&mut self, cmd_parts: Vec<String>) {
         let mut terminal = self.terminal.take().unwrap();
 
         if let (Some(panel_title), Some(message)) = (cmd_parts.get(3), cmd_parts.get(4)) {
@@ -171,11 +174,151 @@ impl Plugin {
         } else {
             self.warn(format!(
                 "Incomplete {} command: {cmd_parts:?}",
-                Action::Push
+                Action::OutputPush
             ))
             .await;
         }
 
+        self.terminal = Some(terminal);
+    }
+
+    async fn handle_cmd_output_update(&mut self, cmd_parts: Vec<String>) {
+        let mut terminal = self.terminal.take().unwrap();
+
+        if let (Some(panel_title), Some(message)) = (cmd_parts.get(3), cmd_parts.get(4)) {
+            if let Some(panel) = self.panels.iter_mut().find(|p| p.title == *panel_title) {
+                panel.output.clear();
+                panel.output.push(message.to_string());
+            }
+            let _ = terminal.draw(|frame| self.draw(frame));
+        } else {
+            self.warn(format!(
+                "Incomplete {} command: {cmd_parts:?}",
+                Action::Update
+            ))
+            .await;
+        }
+
+        self.terminal = Some(terminal);
+    }
+
+    async fn handle_cmd_key_tab(&mut self) {
+        let mut terminal = self.terminal.take().unwrap();
+
+        self.active_panel = (self.active_panel + 1) % self.panels.len();
+        let _ = terminal.draw(|frame| self.draw(frame));
+
+        self.terminal = Some(terminal);
+    }
+
+    async fn handle_cmd_key_arrow(&self, key: Key) {
+        for (idx, panel) in self.panels.iter().enumerate() {
+            if idx == self.active_panel {
+                self.cmd(format!(
+                    "{} {} {} {key}",
+                    consts::P,
+                    panel.plugin_name,
+                    Action::Key,
+                ))
+                .await;
+                break;
+            }
+        }
+    }
+
+    async fn handle_cmd_key_alt_c(&mut self) {
+        let mut terminal = self.terminal.take().unwrap();
+
+        for (idx, panel) in self.panels.iter_mut().enumerate() {
+            if idx == self.active_panel {
+                panel.output.clear();
+                break;
+            }
+        }
+
+        let _ = terminal.draw(|frame| self.draw(frame));
+        self.terminal = Some(terminal);
+    }
+
+    async fn handle_cmd_key_alt(&mut self, key: Key) {
+        let mut terminal = self.terminal.take().unwrap();
+
+        for (idx, panel) in self.panels.iter_mut().enumerate() {
+            if idx == self.active_panel {
+                match key {
+                    Key::AltUp => {
+                        if panel.y > 0 {
+                            panel.y -= 1;
+                        }
+                    }
+                    Key::AltDown => {
+                        panel.y += 1;
+                    }
+                    Key::AltLeft => {
+                        if panel.x > 0 {
+                            panel.x -= 1;
+                        }
+                    }
+                    Key::AltRight => {
+                        panel.x += 1;
+                    }
+                    Key::AltW => {
+                        if panel.height > 2 {
+                            panel.height -= 1;
+                        }
+                    }
+                    Key::AltS => {
+                        panel.height += 1;
+                    }
+                    Key::AltA => {
+                        if panel.width > 2 {
+                            panel.width -= 1;
+                        }
+                    }
+                    Key::AltD => {
+                        panel.width += 1;
+                    }
+                    _ => (),
+                }
+            }
+        }
+
+        let _ = terminal.draw(|frame| self.draw(frame));
+        self.terminal = Some(terminal);
+    }
+
+    async fn handle_cmd_key(&mut self, cmd_parts: Vec<String>) {
+        if let Some(key) = cmd_parts.get(3) {
+            match key.parse::<Key>() {
+                Ok(k @ Key::Up) | Ok(k @ Key::Down) | Ok(k @ Key::Left) | Ok(k @ Key::Right) => {
+                    self.handle_cmd_key_arrow(k).await
+                }
+                Ok(Key::Tab) => self.handle_cmd_key_tab().await,
+                Ok(Key::AltC) => self.handle_cmd_key_alt_c().await,
+                Ok(k @ Key::AltW)
+                | Ok(k @ Key::AltS)
+                | Ok(k @ Key::AltA)
+                | Ok(k @ Key::AltD)
+                | Ok(k @ Key::AltUp)
+                | Ok(k @ Key::AltDown)
+                | Ok(k @ Key::AltLeft)
+                | Ok(k @ Key::AltRight) => self.handle_cmd_key_alt(k).await,
+                _ => (),
+            }
+        }
+    }
+
+    async fn handle_cmd_sub_title(&mut self, cmd_parts: Vec<String>) {
+        let mut terminal = self.terminal.take().unwrap();
+
+        #[allow(clippy::collapsible_if)]
+        if let (Some(panel_title), Some(sub_title)) = (cmd_parts.get(3), cmd_parts.get(4)) {
+            if let Some(panel) = self.panels.iter_mut().find(|p| p.title == *panel_title) {
+                panel.sub_title = sub_title.to_string();
+            }
+        }
+
+        let _ = terminal.draw(|frame| self.draw(frame));
         self.terminal = Some(terminal);
     }
 }
@@ -201,8 +344,14 @@ impl plugins_main::Plugin for Plugin {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             Action::Create => self.handle_cmd_create(cmd_parts).await,
-            Action::Push => self.handle_cmd_push(cmd_parts).await,
-            _ => self.warn(format!("Unsupported action: {action}")).await,
+            Action::OutputPush => self.handle_cmd_output_push(cmd_parts).await,
+            Action::OutputUpdate => self.handle_cmd_output_update(cmd_parts).await,
+            Action::Key => self.handle_cmd_key(cmd_parts).await,
+            Action::SubTitle => self.handle_cmd_sub_title(cmd_parts).await,
+            _ => {
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                    .await
+            }
         }
     }
 }
@@ -215,7 +364,7 @@ fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
     let width = frame.area().width;
     let height = frame.area().height - 3;
 
-    let (panel_x, panel_y, panel_width, panel_height) = if panel.title == CURSOR_PANEL_TITLE {
+    let (panel_x, panel_y, panel_width, panel_height) = if panel.title == consts::COMMAND {
         (0, height, width, 3)
     } else {
         (
@@ -245,7 +394,7 @@ fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
     let area_height = panel_area.height;
 
     let scroll_offset =
-        if panel.title != CURSOR_PANEL_TITLE && panel.output.len() as u16 > (area_height - 3) {
+        if panel.title != consts::COMMAND && panel.output.len() as u16 > (area_height - 3) {
             panel.output.len() as u16 - (area_height - 3)
         } else {
             0
@@ -279,7 +428,7 @@ fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
     frame.render_widget(text, panel_block.inner(panel_area));
 
     // cursor is only for panel command
-    if panel.title == CURSOR_PANEL_TITLE && !panel.output.is_empty() {
+    if panel.title == consts::COMMAND && !panel.output.is_empty() {
         frame.set_cursor_position(Position::new(
             panel_x + panel.output[0].len() as u16 + 1,
             panel_y + 1,

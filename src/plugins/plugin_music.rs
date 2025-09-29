@@ -98,7 +98,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Download => self.handle_cmd_download(&cmd_parts).await,
             _ => {
-                self.warn(format!("[{MODULE}] Unsupported action: {action}"))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
                     .await
             }
         }

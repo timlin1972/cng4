@@ -10,11 +10,14 @@ p plugins insert panels
 p panels create log log 0 0 50 60
 p log gui log
 
+# - plugins
 p plugins insert system
 p plugins insert web
 p plugins insert music
-# p plugins insert cli
-p panels show
+
+# - gui
+p panels create command gui 0 0 80 3
+p plugins insert gui
 """
 
 script_cli = """
@@ -22,5 +25,7 @@ script_cli = """
 p plugins insert system
 p plugins insert web
 p plugins insert music
+
+# - cli
 p plugins insert cli
 """

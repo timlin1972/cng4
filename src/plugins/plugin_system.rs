@@ -95,7 +95,6 @@ impl Plugin {
     }
 
     async fn handle_cmd_update(&mut self) {
-        self.info(Action::Update.to_string()).await;
         self.system_info.update();
     }
 
@@ -129,7 +128,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Update => self.handle_cmd_update().await,
             _ => {
-                self.warn(format!("[{MODULE}] Unsupported action: {action}"))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
                     .await
             }
         }

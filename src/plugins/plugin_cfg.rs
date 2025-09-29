@@ -7,6 +7,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
 use crate::consts;
+use crate::globals;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::plugins_main;
 use crate::utils::common;
@@ -63,6 +64,7 @@ impl Plugin {
             .unwrap_or_else(|_| panic!("Failed to parse TOML from: {}", &self.script));
 
         self.info(format!("  Name: {}", config.name)).await;
+        globals::set_sys_name(&config.name);
 
         // run script
         let script = match self.mode {
@@ -117,7 +119,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             _ => {
-                self.warn(format!("[{MODULE}] Unsupported action: {action}"))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
                     .await
             }
         }

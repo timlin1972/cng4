@@ -1,7 +1,7 @@
 use std::fmt;
 
-use clap::ValueEnum;
 use log::Level::{Info, Warn};
+use strum_macros::{AsRefStr, Display, EnumString};
 use tokio::sync::{
     broadcast,
     mpsc::{Receiver, Sender},
@@ -13,34 +13,65 @@ use crate::utils::time;
 
 const MODULE: &str = "messages";
 
-#[derive(ValueEnum, Clone, Debug)]
-pub enum Action {
-    Log,
-    Insert,
-    Show,
-    Update,
-    Download,
-    Help,
-    Create,
-    Gui,
-    Push,
+// for Key
+#[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
+pub enum Key {
+    #[strum(serialize = "tab")]
+    Tab,
+    #[strum(serialize = "up")]
+    Up,
+    #[strum(serialize = "down")]
+    Down,
+    #[strum(serialize = "left")]
+    Left,
+    #[strum(serialize = "right")]
+    Right,
+    #[strum(serialize = "alt_c")]
+    AltC,
+    #[strum(serialize = "alt_up")]
+    AltUp,
+    #[strum(serialize = "alt_down")]
+    AltDown,
+    #[strum(serialize = "alt_left")]
+    AltLeft,
+    #[strum(serialize = "alt_right")]
+    AltRight,
+    #[strum(serialize = "alt_w")]
+    AltW,
+    #[strum(serialize = "alt_s")]
+    AltS,
+    #[strum(serialize = "alt_a")]
+    AltA,
+    #[strum(serialize = "alt_d")]
+    AltD,
 }
 
-impl fmt::Display for Action {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let text = match self {
-            Action::Log => "log",
-            Action::Insert => "insert",
-            Action::Show => "show",
-            Action::Update => "update",
-            Action::Download => "download",
-            Action::Help => "help",
-            Action::Create => "create",
-            Action::Gui => "gui",
-            Action::Push => "push",
-        };
-        write!(f, "{text}")
-    }
+#[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
+pub enum Action {
+    #[strum(serialize = "log")]
+    Log,
+    #[strum(serialize = "insert")]
+    Insert,
+    #[strum(serialize = "show")]
+    Show,
+    #[strum(serialize = "update")]
+    Update,
+    #[strum(serialize = "download")]
+    Download,
+    #[strum(serialize = "help")]
+    Help,
+    #[strum(serialize = "create")]
+    Create,
+    #[strum(serialize = "gui")]
+    Gui,
+    #[strum(serialize = "output_update")]
+    OutputUpdate,
+    #[strum(serialize = "output_push")]
+    OutputPush,
+    #[strum(serialize = "key")]
+    Key,
+    #[strum(serialize = "sub_title")]
+    SubTitle,
 }
 
 #[derive(Debug, Clone)]
@@ -161,7 +192,7 @@ async fn handle_msg_cmd(
         consts::Q | consts::QUIT | consts::EXIT => {
             let _ = shutdown_tx.send(());
         }
-        _ => warn(msg_tx, MODULE, &format!("Unknown command: {command}")).await,
+        _ => warn(msg_tx, MODULE, &format!("Unknown command: `{command}`")).await,
     }
 }
 

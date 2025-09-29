@@ -1,8 +1,6 @@
 use std::env;
 use std::path::Path;
 
-use clap::ValueEnum;
-
 use crate::messages::Action;
 
 pub fn get_binary_name() -> String {
@@ -29,10 +27,22 @@ pub fn get_cmd_action(cmd: &str) -> Result<(Vec<String>, Action), String> {
         None => return Err(format!("Incomplete command: `{cmd}`")),
     };
 
-    let action = match Action::from_str(action, false) {
+    let action: Action = match action.parse() {
         Ok(action) => action,
         Err(_) => return Err(format!("Unknown action: `{action}` for command: `{cmd}`")),
     };
 
     Ok((cmd_parts, action))
+}
+
+pub enum MsgTemplate {
+    UnsupportedAction,
+}
+
+impl MsgTemplate {
+    pub fn format(&self, detail: &str) -> String {
+        match self {
+            MsgTemplate::UnsupportedAction => format!("Unsupported action: `{detail}`"),
+        }
+    }
 }

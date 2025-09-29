@@ -6,7 +6,8 @@ use crate::arguments::Mode;
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::{
-    plugin_cfg, plugin_cli, plugin_log, plugin_music, plugin_panels, plugin_system, plugin_web,
+    plugin_cfg, plugin_cli, plugin_gui, plugin_log, plugin_music, plugin_panels, plugin_system,
+    plugin_web,
 };
 use crate::utils::common;
 
@@ -77,6 +78,9 @@ impl Plugins {
             plugin_panels::MODULE => Box::new(
                 plugin_panels::Plugin::new(self.msg_tx.clone(), self.shutdown_tx.clone()).await?,
             ) as Box<dyn Plugin + Send + Sync>,
+            plugin_gui::MODULE => Box::new(
+                plugin_gui::Plugin::new(self.msg_tx.clone(), self.shutdown_tx.clone()).await?,
+            ) as Box<dyn Plugin + Send + Sync>,
             _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),
         };
 
@@ -112,7 +116,7 @@ impl Plugins {
         self.info(format!("  {}", Action::Help)).await;
         self.info(format!("  {}", Action::Show)).await;
         self.info(format!("  {} <plugin>", Action::Insert)).await;
-        self.info("  Available plugins:".to_string()).await;
+        self.info("  Inserted plugins:".to_string()).await;
         for plugin in &self.plugins {
             self.info(format!("    - {}", plugin.name())).await;
         }
@@ -137,7 +141,10 @@ impl Plugins {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             Action::Insert => self.handle_cmd_insert(cmd_parts).await,
-            _ => self.warn(format!("Unsupported action: {action}")).await,
+            _ => {
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                    .await
+            }
         }
     }
 

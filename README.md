@@ -59,6 +59,7 @@ Description:
 1. web
 1. music
 1. panels
+1. gui
 
 # Configuration file
 
@@ -88,6 +89,19 @@ curl http://localhost:9759
 ```
 curl -X POST http://localhost:9759/cmd -H "Content-Type: application/json" -d '{"cmd": "p plugins show"}'
 ```
+
+# Keyboard
+
+- TAB
+- Up
+- Down
+- Left
+- Right
+- Ctrl-c
+- Ctrl-w
+- Ctrl-s
+- Ctrl-a
+- Ctrl-d
 
 # Test
 

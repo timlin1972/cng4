@@ -1,4 +1,5 @@
 pub const COMMENT: &str = "#";
+pub const COMMAND: &str = "command";
 pub const EXIT: &str = "exit";
 pub const INIT: &str = "init";
 pub const MSG_SIZE: usize = 4096;

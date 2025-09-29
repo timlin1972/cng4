@@ -5,6 +5,7 @@ use tokio::sync::{broadcast, mpsc};
 
 mod arguments;
 mod consts;
+mod globals;
 mod handle_panic;
 mod messages;
 mod plugins;
@@ -58,8 +59,8 @@ async fn main() {
     let _ = Messages::new(msg_tx.clone(), shutdown_tx.clone(), msg_rx, plugins).await;
 
     // wait for 10 seconds then send shutdown signal again to force exit
-    let _ = tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
-    let _ = shutdown_tx.send(());
+    // let _ = tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+    // let _ = shutdown_tx.send(());
 
     // wait for shutdown signal
     let _ = tokio::spawn(async move { if shutdown_rx.recv().await.is_ok() {} }).await;

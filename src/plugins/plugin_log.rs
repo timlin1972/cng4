@@ -50,7 +50,7 @@ impl Plugin {
                     "{} {} {} {} '{} {plugin:>10}: [{level}] {msg}'",
                     consts::P,
                     plugin_panels::MODULE,
-                    Action::Push,
+                    Action::OutputPush,
                     self.gui_panel.as_ref().unwrap(),
                     time::ts_str(ts)
                 ))
@@ -121,7 +121,11 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Log => self.handle_cmd_log(msg.ts, &msg.plugin, cmd_parts).await,
             Action::Gui => self.handle_cmd_gui(cmd_parts).await,
-            _ => self.warn(format!("Unsupported action: {action}")).await,
+            Action::Key => (), // ignore
+            _ => {
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                    .await
+            }
         }
     }
 }

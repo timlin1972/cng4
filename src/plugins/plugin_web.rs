@@ -120,7 +120,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             _ => {
-                self.warn(format!("[{MODULE}] Unsupported action: {action}"))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
                     .await
             }
         }

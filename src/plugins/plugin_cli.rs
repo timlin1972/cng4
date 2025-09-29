@@ -33,7 +33,7 @@ impl Plugin {
 
     async fn init(&self) {
         self.info(consts::INIT.to_string()).await;
-        tokio::spawn(start_input_loop_cli(self.msg_tx.clone()));
+        tokio::spawn(start_input_loop(self.msg_tx.clone()));
     }
 
     async fn info(&self, msg: String) {
@@ -76,7 +76,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             _ => {
-                self.warn(format!("[{MODULE}] Unsupported action: {action}"))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
                     .await
             }
         }
@@ -95,7 +95,7 @@ fn prompt() {
         .expect("Failed to flush");
 }
 
-async fn start_input_loop_cli(msg_tx: Sender<Msg>) {
+async fn start_input_loop(msg_tx: Sender<Msg>) {
     msgs::info(
         &msg_tx,
         MODULE,
