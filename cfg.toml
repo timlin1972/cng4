@@ -10,6 +10,11 @@ p plugins insert panels
 p panels create log log 0 0 50 60
 p log gui log
 
+# - infos
+p plugins insert infos
+p panels create infos infos 0 61 100 40
+p infos gui infos
+
 p plugins insert system
 p plugins insert devices
 

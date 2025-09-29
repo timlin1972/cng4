@@ -62,6 +62,7 @@ Description:
 1. gui
 1. mqtt
 1. devices
+1. infos
 
 # Configuration file
 

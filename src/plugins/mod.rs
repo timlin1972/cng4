@@ -2,6 +2,7 @@ pub mod plugin_cfg;
 pub mod plugin_cli;
 pub mod plugin_devices;
 pub mod plugin_gui;
+pub mod plugin_infos;
 pub mod plugin_log;
 pub mod plugin_mqtt;
 pub mod plugin_music;

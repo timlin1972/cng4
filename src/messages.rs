@@ -13,6 +13,13 @@ use crate::utils::time;
 
 const MODULE: &str = "messages";
 
+// for infos
+#[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
+pub enum InfoKey {
+    #[strum(serialize = "devices")]
+    Devices,
+}
+
 // for devices
 #[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
 pub enum DeviceKey {

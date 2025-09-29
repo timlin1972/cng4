@@ -3,8 +3,8 @@ use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 
 use crate::consts;
-use crate::messages::{self as msgs, Action, Data, DeviceKey, Msg};
-use crate::plugins::{plugin_system, plugins_main};
+use crate::messages::{self as msgs, Action, Data, DeviceKey, InfoKey, Msg};
+use crate::plugins::{plugin_infos, plugin_system, plugins_main};
 use crate::utils::{self, common};
 
 pub const MODULE: &str = "devices";
@@ -83,6 +83,7 @@ impl Plugin {
     async fn handle_update_onboard(&mut self, name: &str, value: &str) {
         let onboard = value == "1";
         let ts = utils::time::ts();
+        let onboard_str = onboard_str(onboard);
 
         let changed =
             if let Some(device) = self.devices.iter_mut().find(|device| device.name == *name) {
@@ -109,8 +110,7 @@ impl Plugin {
 
         if changed {
             self.info(format!(
-                "{name} {} at {}",
-                onboard_str(onboard),
+                "{name} {onboard_str} at {}",
                 utils::time::ts_str_full(ts),
             ))
             .await;
@@ -126,12 +126,16 @@ impl Plugin {
                 .await;
             }
 
-            // // update infos
-            // self.cmd(
-            //     MODULE,
-            //     format!("p infos {ACTION_DEVICES} onboard {name} {onbard_str}"),
-            // )
-            // .await;
+            // update infos
+            self.cmd(format!(
+                "{} {} {} {} {} {name} {value}",
+                consts::P,
+                plugin_infos::MODULE,
+                Action::Update,
+                InfoKey::Devices,
+                DeviceKey::Onboard,
+            ))
+            .await;
 
             // // update nas
             // self.cmd(
@@ -149,12 +153,16 @@ impl Plugin {
             device.ts = ts;
             device.version = Some(value.to_string());
 
-            // // update infos
-            // self.cmd(
-            //     MODULE,
-            //     format!("p infos {ACTION_DEVICES} version {name} {value}"),
-            // )
-            // .await;
+            // update infos
+            self.cmd(format!(
+                "{} {} {} {} {} {name} {value}",
+                consts::P,
+                plugin_infos::MODULE,
+                Action::Update,
+                InfoKey::Devices,
+                DeviceKey::Version,
+            ))
+            .await;
         }
     }
 
@@ -165,12 +173,16 @@ impl Plugin {
             device.ts = ts;
             device.tailscale_ip = Some(value.to_string());
 
-            // // update infos
-            // self.cmd(
-            //     MODULE,
-            //     format!("p infos {ACTION_DEVICES} {ACTION_TAILSCALE_IP} {name} {value}"),
-            // )
-            // .await;
+            // update infos
+            self.cmd(format!(
+                "{} {} {} {} {} {name} {value}",
+                consts::P,
+                plugin_infos::MODULE,
+                Action::Update,
+                InfoKey::Devices,
+                DeviceKey::TailscaleIp,
+            ))
+            .await;
 
             // // update nas
             // self.cmd(
@@ -192,12 +204,16 @@ impl Plugin {
                 device.temperature = None;
             }
 
-            // // update infos
-            // self.cmd(
-            //     MODULE,
-            //     format!("p infos {ACTION_DEVICES} {ACTION_TEMPERATURE} {name} {temperature}"),
-            // )
-            // .await;
+            // update infos
+            self.cmd(format!(
+                "{} {} {} {} {} {name} {value}",
+                consts::P,
+                plugin_infos::MODULE,
+                Action::Update,
+                InfoKey::Devices,
+                DeviceKey::Temperature,
+            ))
+            .await;
         }
     }
 
@@ -209,12 +225,16 @@ impl Plugin {
             device.ts = ts;
             device.app_uptime = app_uptime;
 
-            // // update infos
-            // self.cmd(
-            //     MODULE,
-            //     format!("p infos {ACTION_DEVICES} {ACTION_APP_UPTIME} {name} {app_uptime}"),
-            // )
-            // .await;
+            // update infos
+            self.cmd(format!(
+                "{} {} {} {} {} {name} {value}",
+                consts::P,
+                plugin_infos::MODULE,
+                Action::Update,
+                InfoKey::Devices,
+                DeviceKey::AppUptime,
+            ))
+            .await;
         }
     }
 
@@ -278,19 +298,19 @@ impl plugins_main::Plugin for Plugin {
     }
 }
 
-fn onboard_str(onboard: bool) -> &'static str {
+pub fn onboard_str(onboard: bool) -> &'static str {
     if onboard { "on" } else { "off" }
 }
 
-fn version_str(version: &Option<String>) -> &str {
+pub fn version_str(version: &Option<String>) -> &str {
     version.as_deref().unwrap_or("n/a")
 }
 
-fn tailscale_ip_str(tailscale_ip: &Option<String>) -> &str {
+pub fn tailscale_ip_str(tailscale_ip: &Option<String>) -> &str {
     tailscale_ip.as_deref().unwrap_or("n/a")
 }
 
-fn temperature_str(temperature: Option<f32>) -> String {
+pub fn temperature_str(temperature: Option<f32>) -> String {
     if let Some(t) = temperature {
         format!("{:.1}°C", t)
     } else {
@@ -298,7 +318,7 @@ fn temperature_str(temperature: Option<f32>) -> String {
     }
 }
 
-fn app_uptime_str(app_uptime: Option<u64>) -> String {
+pub fn app_uptime_str(app_uptime: Option<u64>) -> String {
     if let Some(t) = app_uptime {
         utils::time::uptime_str(t)
     } else {

@@ -6,8 +6,8 @@ use crate::arguments::Mode;
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::{
-    plugin_cfg, plugin_cli, plugin_devices, plugin_gui, plugin_log, plugin_mqtt, plugin_music,
-    plugin_panels, plugin_system, plugin_web,
+    plugin_cfg, plugin_cli, plugin_devices, plugin_gui, plugin_infos, plugin_log, plugin_mqtt,
+    plugin_music, plugin_panels, plugin_system, plugin_web,
 };
 use crate::utils::common;
 
@@ -93,6 +93,8 @@ impl Plugins {
                 Box::new(plugin_devices::Plugin::new(self.msg_tx.clone()).await?)
                     as Box<dyn Plugin + Send + Sync>
             }
+            plugin_infos::MODULE => Box::new(plugin_infos::Plugin::new(self.msg_tx.clone()).await?)
+                as Box<dyn Plugin + Send + Sync>,
             _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),
         };
 
@@ -117,10 +119,10 @@ impl Plugins {
         let plugin_names: Vec<String> = self.plugins.iter().map(|p| p.name().to_string()).collect();
         self.info(Action::Show.to_string()).await;
         self.info(format!("  Plugins: {plugin_names:?}")).await;
-        for plugin in &self.plugins {
-            self.cmd(format!("{} {} {}", consts::P, plugin.name(), Action::Show))
-                .await;
-        }
+        // for plugin in &self.plugins {
+        //     self.cmd(format!("{} {} {}", consts::P, plugin.name(), Action::Show))
+        //         .await;
+        // }
     }
 
     async fn handle_cmd_help(&self) {
