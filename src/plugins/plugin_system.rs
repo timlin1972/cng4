@@ -5,8 +5,8 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Duration;
 
 use crate::consts;
-use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::plugins_main;
+use crate::messages::{self as msgs, Action, Data, DeviceKey, Msg};
+use crate::plugins::{plugin_mqtt, plugins_main};
 use crate::utils::{common, time};
 
 pub const MODULE: &str = "system";
@@ -70,6 +70,10 @@ impl Plugin {
         Ok(myself)
     }
 
+    async fn cmd(&self, msg: String) {
+        msgs::cmd(&self.msg_tx, MODULE, &msg).await;
+    }
+
     async fn info(&self, msg: String) {
         msgs::info(&self.msg_tx, MODULE, &msg).await;
     }
@@ -86,7 +90,7 @@ impl Plugin {
         ))
         .await;
         let uptime_str = time::uptime_str(time::uptime() - self.system_info.ts_start_uptime);
-        self.info(format!("  Uptime: {uptime_str}")).await;
+        self.info(format!("  App uptime: {uptime_str}")).await;
         self.info(format!(
             "  Temperature: {}",
             get_temperature_str(self.system_info.temperature)
@@ -96,6 +100,61 @@ impl Plugin {
 
     async fn handle_cmd_update(&mut self) {
         self.system_info.update();
+
+        // onboard
+        self.cmd(format!(
+            "{} {} {} false {} '1'",
+            consts::P,
+            plugin_mqtt::MODULE,
+            Action::Publish,
+            DeviceKey::Onboard
+        ))
+        .await;
+
+        // version
+        self.cmd(format!(
+            "{} {} {} false {} '{}'",
+            consts::P,
+            plugin_mqtt::MODULE,
+            Action::Publish,
+            DeviceKey::Version,
+            env!("CARGO_PKG_VERSION")
+        ))
+        .await;
+
+        // tailscale_ip
+        self.cmd(format!(
+            "{} {} {} false {} '{}'",
+            consts::P,
+            plugin_mqtt::MODULE,
+            Action::Publish,
+            DeviceKey::TailscaleIp,
+            get_tailscale_ip_str(&self.system_info.tailscale_ip)
+        ))
+        .await;
+
+        // temperature
+        self.cmd(format!(
+            "{} {} {} false {} '{}'",
+            consts::P,
+            plugin_mqtt::MODULE,
+            Action::Publish,
+            DeviceKey::Temperature,
+            get_temperature_mqtt(self.system_info.temperature)
+        ))
+        .await;
+
+        // app uptime
+        let uptime = time::uptime() - self.system_info.ts_start_uptime;
+        self.cmd(format!(
+            "{} {} {} false {} '{}'",
+            consts::P,
+            plugin_mqtt::MODULE,
+            Action::Publish,
+            DeviceKey::AppUptime,
+            uptime
+        ))
+        .await;
     }
 
     async fn handle_cmd_help(&self) {
@@ -192,5 +251,12 @@ fn get_temperature_str(temperature: Option<f32>) -> String {
     match temperature {
         Some(t) => format!("{:.1}°C", t),
         None => "N/A".to_string(),
+    }
+}
+
+fn get_temperature_mqtt(temperature: Option<f32>) -> String {
+    match temperature {
+        Some(t) => format!("{:.1}", t),
+        None => "0.0".to_string(),
     }
 }

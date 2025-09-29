@@ -75,6 +75,8 @@ impl Plugin {
     async fn handle_cmd_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  Mode: {}", self.mode)).await;
+        self.info(format!("  Gui panel: {:?}", self.gui_panel))
+            .await;
     }
 
     async fn handle_cmd_help(&self) {
@@ -92,7 +94,8 @@ impl Plugin {
             self.gui_panel = Some(gui_panel.to_string());
         } else {
             self.warn(format!(
-                "Missing gui_panel for gui command: `{cmd_parts:?}`"
+                "Missing {} for gui command: `{cmd_parts:?}`",
+                Action::Gui
             ))
             .await;
         }
@@ -121,7 +124,6 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Log => self.handle_cmd_log(msg.ts, &msg.plugin, cmd_parts).await,
             Action::Gui => self.handle_cmd_gui(cmd_parts).await,
-            Action::Key => (), // ignore
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
                     .await

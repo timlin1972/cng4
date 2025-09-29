@@ -6,8 +6,8 @@ use crate::arguments::Mode;
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::{
-    plugin_cfg, plugin_cli, plugin_gui, plugin_log, plugin_music, plugin_panels, plugin_system,
-    plugin_web,
+    plugin_cfg, plugin_cli, plugin_devices, plugin_gui, plugin_log, plugin_mqtt, plugin_music,
+    plugin_panels, plugin_system, plugin_web,
 };
 use crate::utils::common;
 
@@ -81,6 +81,18 @@ impl Plugins {
             plugin_gui::MODULE => Box::new(
                 plugin_gui::Plugin::new(self.msg_tx.clone(), self.shutdown_tx.clone()).await?,
             ) as Box<dyn Plugin + Send + Sync>,
+            plugin_mqtt::MODULE => Box::new(
+                plugin_mqtt::Plugin::new(
+                    self.msg_tx.clone(),
+                    self.shutdown_tx.clone(),
+                    self.mode.clone(),
+                )
+                .await?,
+            ) as Box<dyn Plugin + Send + Sync>,
+            plugin_devices::MODULE => {
+                Box::new(plugin_devices::Plugin::new(self.msg_tx.clone()).await?)
+                    as Box<dyn Plugin + Send + Sync>
+            }
             _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),
         };
 

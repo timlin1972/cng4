@@ -10,8 +10,16 @@ p plugins insert panels
 p panels create log log 0 0 50 60
 p log gui log
 
-# - plugins
 p plugins insert system
+p plugins insert devices
+
+# - mqtt
+p plugins insert mqtt
+p panels create mqtt mqtt 51 0 50 60
+p mqtt gui mqtt
+p mqtt restart
+
+# - plugins
 p plugins insert web
 p plugins insert music
 
@@ -22,7 +30,14 @@ p plugins insert gui
 
 script_cli = """
 # Custom CLI script
+
 p plugins insert system
+p plugins insert devices
+
+# - mqtt
+p plugins insert mqtt
+p mqtt restart
+
 p plugins insert web
 p plugins insert music
 

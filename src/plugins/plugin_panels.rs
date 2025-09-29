@@ -410,6 +410,11 @@ fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
                     if subline.contains("[WARN]") {
                         Line::from(Span::styled(
                             subline.to_string(),
+                            Style::default().fg(Color::Yellow),
+                        ))
+                    } else if subline.contains("[ERROR]") {
+                        Line::from(Span::styled(
+                            subline.to_string(),
                             Style::default().fg(Color::Red),
                         ))
                     } else {

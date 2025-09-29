@@ -1,6 +1,6 @@
 use std::fmt;
 
-use log::Level::{Info, Warn};
+use log::Level::{Error, Info, Warn};
 use strum_macros::{AsRefStr, Display, EnumString};
 use tokio::sync::{
     broadcast,
@@ -12,6 +12,21 @@ use crate::plugins::{plugin_log, plugins_main};
 use crate::utils::time;
 
 const MODULE: &str = "messages";
+
+// for devices
+#[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
+pub enum DeviceKey {
+    #[strum(serialize = "onboard")]
+    Onboard,
+    #[strum(serialize = "version")]
+    Version,
+    #[strum(serialize = "tailscale_ip")]
+    TailscaleIp,
+    #[strum(serialize = "temperature")]
+    Temperature,
+    #[strum(serialize = "app_uptime")]
+    AppUptime,
+}
 
 // for Key
 #[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
@@ -72,6 +87,12 @@ pub enum Action {
     Key,
     #[strum(serialize = "sub_title")]
     SubTitle,
+    #[strum(serialize = "restart")]
+    Restart,
+    #[strum(serialize = "disconnected")]
+    Disconnected,
+    #[strum(serialize = "publish")]
+    Publish,
 }
 
 #[derive(Debug, Clone)]
@@ -232,4 +253,8 @@ pub async fn info(msg_tx: &Sender<Msg>, module: &str, msg: &str) {
 
 pub async fn warn(msg_tx: &Sender<Msg>, module: &str, msg: &str) {
     log(msg_tx, Warn, module, msg).await;
+}
+
+pub async fn error(msg_tx: &Sender<Msg>, module: &str, msg: &str) {
+    log(msg_tx, Error, module, msg).await;
 }

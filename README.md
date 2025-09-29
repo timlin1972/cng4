@@ -60,6 +60,8 @@ Description:
 1. music
 1. panels
 1. gui
+1. mqtt
+1. devices
 
 # Configuration file
 
