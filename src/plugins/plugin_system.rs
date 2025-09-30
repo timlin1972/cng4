@@ -93,7 +93,7 @@ impl Plugin {
         self.info(format!("  App uptime: {uptime_str}")).await;
         self.info(format!(
             "  Temperature: {}",
-            get_temperature_str(self.system_info.temperature)
+            common::temperature_str(self.system_info.temperature)
         ))
         .await;
     }
@@ -187,7 +187,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Update => self.handle_cmd_update().await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }
@@ -231,7 +231,7 @@ fn get_tailscale_ip() -> Option<String> {
 fn get_tailscale_ip_str(tailscale_ip: &Option<String>) -> String {
     match tailscale_ip {
         Some(ip) => ip.clone(),
-        None => "N/A".to_string(),
+        None => consts::NA.to_string(),
     }
 }
 
@@ -245,13 +245,6 @@ fn get_temperature() -> Option<f32> {
     }
 
     None
-}
-
-fn get_temperature_str(temperature: Option<f32>) -> String {
-    match temperature {
-        Some(t) => format!("{:.1}°C", t),
-        None => "N/A".to_string(),
-    }
 }
 
 fn get_temperature_mqtt(temperature: Option<f32>) -> String {

@@ -143,7 +143,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Key => self.handle_cmd_key(&cmd_parts).await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }

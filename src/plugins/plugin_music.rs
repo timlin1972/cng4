@@ -62,8 +62,12 @@ impl Plugin {
         if let Some(url) = cmd_parts.get(3) {
             self.yt_dlp.download(url).await;
         } else {
-            self.warn(format!("Missing URL for download command: `{cmd_parts:?}`"))
-                .await;
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<url>",
+                Action::Download.as_ref(),
+                &cmd_parts.join(" "),
+            ))
+            .await;
         }
     }
 
@@ -98,7 +102,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Download => self.handle_cmd_download(&cmd_parts).await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }

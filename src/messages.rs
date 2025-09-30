@@ -13,11 +13,22 @@ use crate::utils::time;
 
 const MODULE: &str = "messages";
 
+// for weather
+#[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
+pub enum WeatherKey {
+    #[strum(serialize = "summary")]
+    Summary,
+    #[strum(serialize = "daily")]
+    Daily,
+}
+
 // for infos
 #[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
 pub enum InfoKey {
     #[strum(serialize = "devices")]
     Devices,
+    #[strum(serialize = "weather")]
+    Weather,
 }
 
 // for devices
@@ -100,6 +111,8 @@ pub enum Action {
     Disconnected,
     #[strum(serialize = "publish")]
     Publish,
+    #[strum(serialize = "add")]
+    Add,
 }
 
 #[derive(Debug, Clone)]

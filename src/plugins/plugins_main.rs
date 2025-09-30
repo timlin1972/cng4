@@ -7,7 +7,7 @@ use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::{
     plugin_cfg, plugin_cli, plugin_devices, plugin_gui, plugin_infos, plugin_log, plugin_mqtt,
-    plugin_music, plugin_panels, plugin_script, plugin_system, plugin_web,
+    plugin_music, plugin_panels, plugin_script, plugin_system, plugin_weather, plugin_web,
 };
 use crate::utils::common;
 
@@ -97,6 +97,10 @@ impl Plugins {
                 plugin_script::Plugin::new(self.msg_tx.clone(), self.mode.clone(), &self.script)
                     .await?,
             ) as Box<dyn Plugin + Send + Sync>,
+            plugin_weather::MODULE => {
+                Box::new(plugin_weather::Plugin::new(self.msg_tx.clone(), self.mode.clone()).await?)
+                    as Box<dyn Plugin + Send + Sync>
+            }
             _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),
         };
 
@@ -110,8 +114,10 @@ impl Plugins {
                 self.warn(e.to_string()).await;
             }
         } else {
-            self.warn(format!(
-                "Missing plugin name for insert command: `{cmd_parts:?}`"
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<plugin>",
+                Action::Insert.as_ref(),
+                &cmd_parts.join(" "),
             ))
             .await;
         }
@@ -158,7 +164,7 @@ impl Plugins {
             Action::Show => self.handle_cmd_show().await,
             Action::Insert => self.handle_cmd_insert(cmd_parts).await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }
@@ -191,8 +197,12 @@ impl Plugins {
         let plugin_name = match cmd_parts.get(1) {
             Some(name) => name,
             None => {
-                self.warn(format!("Missing plugin name for cmd `{}`.", cmd.cmd))
-                    .await;
+                self.warn(common::MsgTemplate::MissingParameters.format(
+                    "<plugin_name>",
+                    consts::P,
+                    &cmd_parts.join(" "),
+                ))
+                .await;
                 return;
             }
         };

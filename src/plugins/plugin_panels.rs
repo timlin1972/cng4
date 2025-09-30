@@ -94,13 +94,13 @@ impl Plugin {
         self.info(format!("  Number of panels: {}", self.panels.len()))
             .await;
         self.info(format!(
-            "  {:<2} {:<12} {:<12} {:12}",
+            "  {:<2} {:<12} {:<30} {:12}",
             "ID", "Title", "Subtitle", "Plugin"
         ))
         .await;
         for (idx, panel) in self.panels.iter().enumerate() {
             self.info(format!(
-                "  {:<2} {:<12} {:<12} {:12}",
+                "  {:<2} {:<12} {:<30} {:12}",
                 idx, panel.title, panel.sub_title, panel.plugin_name
             ))
             .await;
@@ -151,7 +151,7 @@ impl Plugin {
             let _ = terminal.draw(|frame| self.draw(frame));
         } else {
             self.warn(format!(
-                "Incomplete {} command: {cmd_parts:?}",
+                "Incomplete `{}` command: {cmd_parts:?}",
                 Action::Create
             ))
             .await;
@@ -173,7 +173,7 @@ impl Plugin {
             let _ = terminal.draw(|frame| self.draw(frame));
         } else {
             self.warn(format!(
-                "Incomplete {} command: {cmd_parts:?}",
+                "Incomplete `{}` command: {cmd_parts:?}",
                 Action::OutputPush
             ))
             .await;
@@ -193,7 +193,7 @@ impl Plugin {
             let _ = terminal.draw(|frame| self.draw(frame));
         } else {
             self.warn(format!(
-                "Incomplete {} command: {cmd_parts:?}",
+                "Incomplete `{}` command: {cmd_parts:?}",
                 Action::Update
             ))
             .await;
@@ -349,7 +349,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Key => self.handle_cmd_key(cmd_parts).await,
             Action::SubTitle => self.handle_cmd_sub_title(cmd_parts).await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }

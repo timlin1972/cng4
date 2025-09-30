@@ -76,7 +76,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }
@@ -99,10 +99,7 @@ async fn start_input_loop(msg_tx: Sender<Msg>) {
     msgs::info(
         &msg_tx,
         MODULE,
-        &format!(
-            "Waiting for {} seconds before starting CLI input loop...",
-            STARTUP_DELAY_SECS
-        ),
+        &format!("Waiting for {STARTUP_DELAY_SECS} seconds before starting CLI input loop...",),
     )
     .await;
     tokio::time::sleep(Duration::from_secs(STARTUP_DELAY_SECS)).await;

@@ -82,7 +82,7 @@ impl YtDlp {
             .await;
         self.info(format!(
             "  version: {}",
-            self.version.as_ref().unwrap_or(&"N/A".into())
+            self.version.as_ref().unwrap_or(&consts::NA.into())
         ))
         .await;
         self.info(format!("  output_dir: `{}`", self.output_dir))

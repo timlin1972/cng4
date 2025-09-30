@@ -64,6 +64,7 @@ Description:
 1. devices
 1. infos
 1. script
+1. weather
 
 # Configuration file
 
@@ -85,7 +86,7 @@ Description:
 1. add plugin_xxx
 1. modify plugins/mod.rs
 1. modify plugins/plugins_main.rs (insert)
-1. modify cfg.toml
+1. modify script.toml
 
 # Web APIs
 

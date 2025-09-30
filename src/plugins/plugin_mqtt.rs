@@ -175,9 +175,10 @@ impl Plugin {
         if let Some(gui_panel) = cmd_parts.get(3) {
             self.gui_panel = Some(gui_panel.to_string());
         } else {
-            self.warn(format!(
-                "Missing gui_panel for {} command: `{cmd_parts:?}`",
-                Action::Gui
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<gui_panel>",
+                Action::Gui.as_ref(),
+                &cmd_parts.join(" "),
             ))
             .await;
         }
@@ -235,9 +236,10 @@ impl Plugin {
             )
             .await;
         } else {
-            self.warn(format!(
-                "Missing parameters for {} command: `{cmd_parts:?}`",
-                Action::Publish
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<retain> <key> <payload>",
+                Action::Publish.as_ref(),
+                &cmd_parts.join(" "),
             ))
             .await;
         }
@@ -269,7 +271,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Disconnected => self.handle_cmd_disconnected().await,
             Action::Publish => self.handle_cmd_publish(cmd_parts).await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }

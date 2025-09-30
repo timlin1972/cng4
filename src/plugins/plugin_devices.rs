@@ -69,7 +69,7 @@ impl Plugin {
                 onboard_str(device.onboard),
                 version_str(&device.version),
                 tailscale_ip_str(&device.tailscale_ip),
-                temperature_str(device.temperature),
+                common::temperature_str(device.temperature),
                 app_uptime_str(device.app_uptime),
                 utils::time::ts_str_no_tz_no_sec(device.ts)
             ))
@@ -252,10 +252,10 @@ impl Plugin {
     }
 
     async fn handle_cmd_update(&mut self, cmd_parts: Vec<String>) {
-        if let (Some(key), Some(name), Some(value)) =
+        if let (Some(device_key), Some(name), Some(value)) =
             (cmd_parts.get(3), cmd_parts.get(4), cmd_parts.get(5))
         {
-            match key.parse::<DeviceKey>() {
+            match device_key.parse::<DeviceKey>() {
                 Ok(_k @ DeviceKey::Onboard) => self.handle_update_onboard(name, value).await,
                 Ok(_k @ DeviceKey::Version) => self.handle_update_version(name, value).await,
                 Ok(_k @ DeviceKey::TailscaleIp) => {
@@ -266,16 +266,19 @@ impl Plugin {
                 }
                 Ok(_k @ DeviceKey::AppUptime) => self.handle_update_app_uptime(name, value).await,
                 Err(_) => {
-                    self.warn(format!(
-                        "Invalid device key: `{key}` for command: `{cmd_parts:?}`"
+                    self.warn(common::MsgTemplate::InvalidParameters.format(
+                        "<device_key> (`{device_key}`)",
+                        Action::Update.as_ref(),
+                        &cmd_parts.join(" "),
                     ))
-                    .await
+                    .await;
                 }
             }
         } else {
-            self.warn(format!(
-                "Missing device key or value for {} command: `{cmd_parts:?}`",
-                Action::Update
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<key> <name> <value>",
+                Action::Update.as_ref(),
+                &cmd_parts.join(" "),
             ))
             .await;
         }
@@ -304,7 +307,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Update => self.handle_cmd_update(cmd_parts).await,
             _ => {
-                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref()))
+                self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }
@@ -312,29 +315,21 @@ impl plugins_main::Plugin for Plugin {
 }
 
 pub fn onboard_str(onboard: bool) -> &'static str {
-    if onboard { "on" } else { "off" }
+    if onboard { "On" } else { "Off" }
 }
 
 pub fn version_str(version: &Option<String>) -> &str {
-    version.as_deref().unwrap_or("n/a")
+    version.as_deref().unwrap_or(consts::NA)
 }
 
 pub fn tailscale_ip_str(tailscale_ip: &Option<String>) -> &str {
-    tailscale_ip.as_deref().unwrap_or("n/a")
-}
-
-pub fn temperature_str(temperature: Option<f32>) -> String {
-    if let Some(t) = temperature {
-        format!("{:.1}°C", t)
-    } else {
-        "n/a".to_owned()
-    }
+    tailscale_ip.as_deref().unwrap_or(consts::NA)
 }
 
 pub fn app_uptime_str(app_uptime: Option<u64>) -> String {
     if let Some(t) = app_uptime {
         utils::time::uptime_str(t)
     } else {
-        "n/a".to_owned()
+        consts::NA.to_owned()
     }
 }
