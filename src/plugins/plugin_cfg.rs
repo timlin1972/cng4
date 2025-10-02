@@ -17,6 +17,7 @@ const CFG_FILE: &str = "cfg.toml";
 #[derive(Debug, Deserialize)]
 struct Config {
     name: String,
+    server: String,
 }
 
 #[derive(Debug)]
@@ -52,14 +53,16 @@ impl Plugin {
             .unwrap_or_else(|_| panic!("Failed to parse TOML from: {CFG_FILE}"));
 
         self.info(format!("  Name: {}", config.name)).await;
+        self.info(format!("  Server: {}", config.server)).await;
         globals::set_sys_name(&config.name);
+        globals::set_server(&config.server);
     }
 
     async fn handle_cmd_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  Script: {CFG_FILE}")).await;
-        self.info(format!("  Name: {}", globals::get_sys_name()))
-            .await;
+        self.info(format!("  Name: {}", globals::get_sys_name())).await;
+        self.info(format!("  Server: {}", globals::get_server())).await;
     }
 
     async fn handle_cmd_help(&self) {
