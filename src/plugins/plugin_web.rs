@@ -1,6 +1,14 @@
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use anyhow::Result;
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose;
+use chrono::{DateTime, Utc};
+use filetime::FileTime;
 use tokio::sync::mpsc::Sender;
 
 use crate::consts;
@@ -9,9 +17,14 @@ use crate::plugins::plugins_main;
 use crate::utils::{api, common};
 
 pub const MODULE: &str = "web";
+const MAX_SIZE: usize = 100 * 1024 * 1024; // 100MB
 
 async fn msgs_info(msg_tx: &Sender<Msg>, msg: &str) {
     msgs::info(msg_tx, MODULE, msg).await;
+}
+
+async fn msgs_warn(msg_tx: &Sender<Msg>, msg: &str) {
+    msgs::warn(msg_tx, MODULE, msg).await;
 }
 
 async fn msgs_cmd(msg_tx: &Sender<Msg>, msg: &str) {
@@ -42,23 +55,29 @@ async fn upload(
 
     msgs_info(&msg_tx, &format!("API: POST /upload: `{filename}`")).await;
 
-    // if !is_valid_filename(filename) {
-    //     return HttpResponse::BadRequest().body("Invalid filename");
-    // }
+    fn is_valid_filename(path: &str) -> bool {
+        let path = Path::new(path);
+        path.components().all(|c| {
+            matches!(
+                c,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        }) && !path.is_absolute()
+    }
 
-    // let content = &data.data.content;
-    // let mtime = &data.data.mtime;
+    if !is_valid_filename(filename) {
+        return HttpResponse::BadRequest().body("Invalid filename");
+    }
 
-    // if let Err(e) = nas_info::write_file(filename, content, mtime).await {
-    //     warn(
-    //         &msg_tx,
-    //         format!("[{MODULE}] Failed to write `{filename}`: {e}"),
-    //     )
-    //     .await;
-    //     return HttpResponse::InternalServerError().body("Failed to write `{filename}`: {e}");
-    // }
+    let content = &data.data.content;
+    let mtime = &data.data.mtime;
 
-    // info(&msg_tx, format!("[{MODULE}] API: upload `{filename}`")).await;
+    if let Err(e) = write_file(filename, content, mtime).await {
+        msgs_warn(&msg_tx, &format!("Failed to write `{filename}`: {e}")).await;
+        return HttpResponse::InternalServerError().body("Failed to write `{filename}`: {e}");
+    }
+
+    msgs_info(&msg_tx, &format!("API: POST /upload: `{filename}` done")).await;
 
     HttpResponse::Ok().finish()
 }
@@ -104,6 +123,7 @@ impl Plugin {
             HttpServer::new(move || {
                 App::new()
                     .app_data(web::Data::new(msg_tx_clone.clone()))
+                    .app_data(web::JsonConfig::default().limit(MAX_SIZE)) // 100 MB
                     .service(hello)
                     .service(cmd)
                     .service(upload)
@@ -152,4 +172,31 @@ impl plugins_main::Plugin for Plugin {
             }
         }
     }
+}
+
+async fn write_file(filename: &str, content: &str, mtime: &str) -> anyhow::Result<()> {
+    let file_path = PathBuf::from(filename);
+
+    // if the content is the same, return
+    if file_path.exists() {
+        let bytes = fs::read(&file_path)?;
+        let encoded = general_purpose::STANDARD.encode(&bytes);
+        if encoded == content {
+            return Ok(());
+        }
+    }
+
+    let decoded = general_purpose::STANDARD.decode(content)?;
+    let mtime: DateTime<Utc> = DateTime::parse_from_rfc3339(mtime)?.with_timezone(&Utc);
+
+    if let Some(parent) = file_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    fs::write(&file_path, decoded)?;
+
+    let file_time = FileTime::from_unix_time(mtime.timestamp(), 0);
+    filetime::set_file_mtime(&file_path, file_time)?;
+
+    Ok(())
 }

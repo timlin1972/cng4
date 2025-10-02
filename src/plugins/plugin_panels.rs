@@ -115,7 +115,16 @@ impl Plugin {
 
     fn draw(&mut self, frame: &mut Frame) {
         for (idx, panel) in self.panels.iter_mut().enumerate() {
-            draw_panel(panel, frame, idx == self.active_panel);
+            if idx != self.active_panel {
+                draw_panel(panel, frame, false);
+            }
+        }
+
+        for (idx, panel) in self.panels.iter_mut().enumerate() {
+            if idx == self.active_panel {
+                draw_panel(panel, frame, true);
+                break;
+            }
         }
     }
 

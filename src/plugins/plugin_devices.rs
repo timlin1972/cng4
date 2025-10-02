@@ -4,6 +4,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
 use crate::consts;
+use crate::globals;
 use crate::messages::{self as msgs, Action, Data, DeviceKey, InfoKey, Msg};
 use crate::plugins::{plugin_infos, plugin_system, plugins_main};
 use crate::utils::{self, api, common};
@@ -182,6 +183,11 @@ impl Plugin {
             device.ts = ts;
             device.tailscale_ip = Some(value.to_string());
 
+            // update globals
+            if name == globals::get_server() {
+                globals::set_server_ip(value);
+            }
+
             // update infos
             if self.mode == Mode::Gui {
                 self.cmd(format!(
@@ -298,7 +304,7 @@ impl Plugin {
                         "Sending command to device `{device_name}` at {ip}: `{cmd}`"
                     ))
                     .await;
-                    api::send_cmd(
+                    api::post_cmd(
                         &self.msg_tx,
                         MODULE,
                         ip,

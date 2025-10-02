@@ -65,6 +65,11 @@ impl Plugin {
             .await;
         self.info(format!("  Server: {}", globals::get_server()))
             .await;
+        self.info(format!(
+            "  Server IP: {}",
+            globals::get_server_ip().unwrap_or_default()
+        ))
+        .await;
     }
 
     async fn handle_cmd_help(&self) {

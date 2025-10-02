@@ -11,9 +11,10 @@ use tokio::sync::mpsc::Sender;
 use walkdir::WalkDir;
 
 use crate::consts;
+use crate::globals;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::plugins_main;
-use crate::utils::{common, ffmpeg, yt_dlp};
+use crate::utils::{api, common, ffmpeg, yt_dlp};
 
 pub const MODULE: &str = "music";
 
@@ -62,6 +63,8 @@ impl Plugin {
     }
 
     async fn handle_cmd_download(&mut self, cmd_parts: &[String]) {
+        self.info(Action::Show.to_string()).await;
+
         if !self.is_available {
             self.warn("Not available".to_string()).await;
             return;
@@ -86,9 +89,20 @@ impl Plugin {
         self.info(format!("  {} <url>", Action::Download)).await;
         self.info("    url: the URL to download".to_string()).await;
         self.info(format!("  {}", Action::Upload)).await;
+        self.info(format!("  {}", Action::Remove)).await;
     }
 
     async fn handle_cmd_upload(&self) {
+        self.info(Action::Upload.to_string()).await;
+
+        if globals::get_server_ip().is_none() {
+            self.warn("Server IP is not set. Please set it first.".to_string())
+                .await;
+            return;
+        }
+
+        let server_ip = globals::get_server_ip().unwrap();
+
         let source_dir = Path::new(consts::NAS_MUSIC_FOLDER);
         let target_dir = Path::new(consts::NAS_UPLOAD_FOLDER);
 
@@ -109,11 +123,34 @@ impl Plugin {
                 .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
                 .unwrap_or_else(|_| Utc::now().to_rfc3339());
 
-            self.info(format!(
-                "Uploading file `{source_path_no_prefix:?}` to `{mtime:?}`...",
-            ))
-            .await;
+            let msg_tx_clone = self.msg_tx.clone();
+            let target_path = target_path.clone();
+            let server_ip = server_ip.clone();
+            tokio::task::spawn(async move {
+                api::post_upload(
+                    &msg_tx_clone,
+                    MODULE,
+                    server_ip.as_str(),
+                    &api::UploadRequest {
+                        data: api::UploadData {
+                            filename: target_path.to_string_lossy().to_string(),
+                            content: encoded,
+                            mtime,
+                        },
+                    },
+                )
+                .await;
+            });
         }
+    }
+
+    async fn handle_cmd_remove(&self) {
+        self.info(Action::Remove.to_string()).await;
+
+        // remove all files in consts::NAS_MUSIC_FOLDER
+        let folder_path = Path::new(consts::NAS_MUSIC_FOLDER);
+        let _ = fs::remove_dir_all(folder_path);
+        let _ = fs::create_dir_all(folder_path);
     }
 }
 
@@ -139,6 +176,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Download => self.handle_cmd_download(&cmd_parts).await,
             Action::Upload => self.handle_cmd_upload().await,
+            Action::Remove => self.handle_cmd_remove().await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

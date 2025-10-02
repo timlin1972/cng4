@@ -1,6 +1,6 @@
 [package]
 name = "cng4"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2024"
 
 [dependencies]
@@ -11,6 +11,7 @@ base64 = "0.22.1"
 chrono = "0.4.42"
 clap = { version = "4", features = ["derive"] }
 colored = "3.0.0"
+filetime = "0.2.26"
 hex = "0.4.3"
 log = "0.4.28"
 once_cell = "1.21.3"
