@@ -6,7 +6,7 @@ use crate::arguments::Mode;
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, DeviceKey, InfoKey, Msg};
 use crate::plugins::{plugin_infos, plugin_system, plugins_main};
-use crate::utils::{self, common};
+use crate::utils::{self, api, common};
 
 pub const MODULE: &str = "devices";
 
@@ -57,21 +57,21 @@ impl Plugin {
     async fn handle_cmd_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!(
-            "  {:<10} {:<7} {:<8} {:<15} {:<6} {:<12} {:<16}",
+            "  {:<12} {:<7} {:<8} {:<15} {:<6} {:<12} {:<16}",
             "Name", "Onboard", "Version", "Tailscale IP", "Temp", "App uptime", "Last update"
         ))
         .await;
 
         for device in &self.devices {
             self.info(format!(
-                "  {:<10} {:<7} {:<8} {:<15} {:<6} {:<12} {:<16}",
+                "  {:<12} {:<7} {:<8} {:<15} {:<6} {:<12} {:<16}",
                 device.name,
                 onboard_str(device.onboard),
                 version_str(&device.version),
                 tailscale_ip_str(&device.tailscale_ip),
                 common::temperature_str(device.temperature),
                 app_uptime_str(device.app_uptime),
-                utils::time::ts_str_no_tz_no_sec(device.ts)
+                utils::time::ts_str_local(device.ts)
             ))
             .await;
         }
@@ -81,6 +81,8 @@ impl Plugin {
         self.info(Action::Help.to_string()).await;
         self.info(format!("  {}", Action::Help)).await;
         self.info(format!("  {}", Action::Show)).await;
+        self.info(format!("  {} <device_name> \"<cmd>\"", Action::Cmd))
+            .await;
     }
 
     async fn handle_update_onboard(&mut self, name: &str, value: &str) {
@@ -283,6 +285,42 @@ impl Plugin {
             .await;
         }
     }
+
+    pub async fn handle_cmd(&mut self, cmd_parts: Vec<String>) {
+        if let (Some(device_name), Some(cmd)) = (cmd_parts.get(3), cmd_parts.get(4)) {
+            if let Some(device) = self
+                .devices
+                .iter()
+                .find(|device| device.name == *device_name)
+            {
+                if let Some(ip) = &device.tailscale_ip {
+                    self.info(format!(
+                        "Sending command to device `{device_name}` at {ip}: `{cmd}`"
+                    ))
+                    .await;
+                    api::send_cmd(
+                        &self.msg_tx,
+                        MODULE,
+                        ip,
+                        &api::CmdRequest { cmd: cmd.clone() },
+                    )
+                    .await;
+                } else {
+                    self.warn(format!("Device `{device_name}` has no Tailscale IP"))
+                        .await;
+                }
+            } else {
+                self.warn(format!("Device `{device_name}` not found")).await;
+            }
+        } else {
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<device_name> \"<cmd>\"",
+                Action::Cmd.as_ref(),
+                &cmd_parts.join(" "),
+            ))
+            .await;
+        }
+    }
 }
 
 #[async_trait]
@@ -306,6 +344,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             Action::Update => self.handle_cmd_update(cmd_parts).await,
+            Action::Cmd => self.handle_cmd(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

@@ -124,13 +124,10 @@ impl Plugins {
     }
 
     async fn handle_cmd_show(&self) {
-        let plugin_names: Vec<String> = self.plugins.iter().map(|p| p.name().to_string()).collect();
         self.info(Action::Show.to_string()).await;
-        self.info(format!("  Plugins: {plugin_names:?}")).await;
-        // for plugin in &self.plugins {
-        //     self.cmd(format!("{} {} {}", consts::P, plugin.name(), Action::Show))
-        //         .await;
-        // }
+        for plugin in &self.plugins {
+            self.info(format!("  - {}", plugin.name())).await;
+        }
     }
 
     async fn handle_cmd_help(&self) {

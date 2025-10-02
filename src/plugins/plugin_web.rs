@@ -1,13 +1,12 @@
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use anyhow::Result;
 use async_trait::async_trait;
-use serde::Deserialize;
 use tokio::sync::mpsc::Sender;
 
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::plugins_main;
-use crate::utils::common;
+use crate::utils::{api, common};
 
 pub const MODULE: &str = "web";
 
@@ -25,16 +24,41 @@ async fn hello(msg_tx: web::Data<Sender<Msg>>) -> impl Responder {
     HttpResponse::Ok().body(format!("Hello {}!", common::get_binary_name()))
 }
 
-#[derive(Deserialize)]
-struct CmdRequest {
-    cmd: String,
-}
-
 #[post("/cmd")]
-async fn cmd(data: web::Json<CmdRequest>, msg_tx: web::Data<Sender<Msg>>) -> impl Responder {
+async fn cmd(data: web::Json<api::CmdRequest>, msg_tx: web::Data<Sender<Msg>>) -> impl Responder {
     let data_cmd = &data.cmd;
     msgs_info(&msg_tx, &format!("API: POST /cmd: `{data_cmd}`")).await;
     msgs_cmd(&msg_tx, data_cmd).await;
+
+    HttpResponse::Ok().finish()
+}
+
+#[post("/upload")]
+async fn upload(
+    data: web::Json<api::UploadRequest>,
+    msg_tx: web::Data<Sender<Msg>>,
+) -> impl Responder {
+    let filename = &data.data.filename;
+
+    msgs_info(&msg_tx, &format!("API: POST /upload: `{filename}`")).await;
+
+    // if !is_valid_filename(filename) {
+    //     return HttpResponse::BadRequest().body("Invalid filename");
+    // }
+
+    // let content = &data.data.content;
+    // let mtime = &data.data.mtime;
+
+    // if let Err(e) = nas_info::write_file(filename, content, mtime).await {
+    //     warn(
+    //         &msg_tx,
+    //         format!("[{MODULE}] Failed to write `{filename}`: {e}"),
+    //     )
+    //     .await;
+    //     return HttpResponse::InternalServerError().body("Failed to write `{filename}`: {e}");
+    // }
+
+    // info(&msg_tx, format!("[{MODULE}] API: upload `{filename}`")).await;
 
     HttpResponse::Ok().finish()
 }
@@ -65,6 +89,8 @@ impl Plugin {
     async fn init(&mut self) {
         self.info(consts::INIT.to_string()).await;
 
+        let _ = std::fs::create_dir_all(consts::NAS_UPLOAD_FOLDER);
+
         self.info(format!(
             "  Running web server on {}:{}...",
             consts::WEB_IP,
@@ -80,6 +106,7 @@ impl Plugin {
                     .app_data(web::Data::new(msg_tx_clone.clone()))
                     .service(hello)
                     .service(cmd)
+                    .service(upload)
             })
             .bind((consts::WEB_IP, consts::WEB_PORT))
             .unwrap()

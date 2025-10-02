@@ -1,3 +1,4 @@
+pub mod api;
 pub mod common;
 pub mod ffmpeg;
 pub mod time;

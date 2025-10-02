@@ -78,7 +78,7 @@ impl Plugin {
                 plugin_devices::tailscale_ip_str(&device.tailscale_ip),
                 common::temperature_str(device.temperature),
                 plugin_devices::app_uptime_str(device.app_uptime),
-                utils::time::ts_str_no_tz_no_sec(device.ts),
+                utils::time::ts_str_local(device.ts),
             );
         }
 

@@ -135,3 +135,10 @@ yt-dlp --output "%(title)s.%(ext)s" --embed-thumbnail --add-metadata --extract-a
 sudo wget https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -O /usr/local/bin/yt-dlp
 sudo chmod a+rx /usr/local/bin/yt-dlp
 ```
+
+# Music
+
+```
+p music download https://www.youtube.com/watch?v=duZDsG3tvoA
+p music upload
+```

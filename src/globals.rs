@@ -11,7 +11,7 @@ struct Global {
 static SYS_NAME: Lazy<Mutex<Global>> = Lazy::new(|| {
     Mutex::new(Global {
         sys_name: DEFFAULT_SYS_NAME.to_string(),
-        server: DEFFAULT_SYS_NAME.to_string(),
+        server: DEFFAULT_SERVER_NAME.to_string(),
     })
 });
 

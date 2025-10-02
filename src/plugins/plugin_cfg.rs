@@ -61,8 +61,10 @@ impl Plugin {
     async fn handle_cmd_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  Script: {CFG_FILE}")).await;
-        self.info(format!("  Name: {}", globals::get_sys_name())).await;
-        self.info(format!("  Server: {}", globals::get_server())).await;
+        self.info(format!("  Name: {}", globals::get_sys_name()))
+            .await;
+        self.info(format!("  Server: {}", globals::get_server()))
+            .await;
     }
 
     async fn handle_cmd_help(&self) {

@@ -1,6 +1,14 @@
+use std::fs;
+use std::path::Path;
+use std::path::PathBuf;
+
 use anyhow::Result;
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose;
+use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::Sender;
+use walkdir::WalkDir;
 
 use crate::consts;
 use crate::messages::{self as msgs, Action, Data, Msg};
@@ -77,6 +85,35 @@ impl Plugin {
         self.info(format!("  {}", Action::Show)).await;
         self.info(format!("  {} <url>", Action::Download)).await;
         self.info("    url: the URL to download".to_string()).await;
+        self.info(format!("  {}", Action::Upload)).await;
+    }
+
+    async fn handle_cmd_upload(&self) {
+        let source_dir = Path::new(consts::NAS_MUSIC_FOLDER);
+        let target_dir = Path::new(consts::NAS_UPLOAD_FOLDER);
+
+        // for all files in consts::NAS_MUSIC_FOLDER to send upload request
+        for entry in WalkDir::new(source_dir)
+            .into_iter()
+            .filter_map(Result::ok)
+            .filter(|e| e.file_type().is_file())
+        {
+            let source_path = PathBuf::from(entry.path());
+            let source_path_no_prefix = source_path.strip_prefix(source_dir).unwrap();
+            let bytes = fs::read(&source_path).unwrap();
+            let target_path = target_dir.join(source_path_no_prefix);
+
+            let encoded = general_purpose::STANDARD.encode(&bytes);
+            let mtime = fs::metadata(&source_path)
+                .and_then(|meta| meta.modified())
+                .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
+                .unwrap_or_else(|_| Utc::now().to_rfc3339());
+
+            self.info(format!(
+                "Uploading file `{source_path_no_prefix:?}` to `{mtime:?}`...",
+            ))
+            .await;
+        }
     }
 }
 
@@ -101,6 +138,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Help => self.handle_cmd_help().await,
             Action::Show => self.handle_cmd_show().await,
             Action::Download => self.handle_cmd_download(&cmd_parts).await,
+            Action::Upload => self.handle_cmd_upload().await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

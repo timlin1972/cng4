@@ -113,6 +113,10 @@ pub enum Action {
     Publish,
     #[strum(serialize = "add")]
     Add,
+    #[strum(serialize = "cmd")]
+    Cmd,
+    #[strum(serialize = "upload")]
+    Upload,
 }
 
 #[derive(Debug, Clone)]
