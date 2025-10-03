@@ -1,11 +1,11 @@
 pub const COMMENT: &str = "#";
-pub const COMMAND: &str = "command";
 pub const EXIT: &str = "exit";
 pub const INIT: &str = "init";
 pub const MSG_SIZE: usize = 4096;
 pub const NA: &str = "N/A";
 pub const NAS_MUSIC_FOLDER: &str = "./nas/music";
 pub const NAS_UPLOAD_FOLDER: &str = "./nas/upload";
+pub const NAS_EDITOR_FOLDER: &str = "./nas/editor";
 pub const NEW: &str = "new";
 pub const P: &str = "p";
 pub const Q: &str = "q";

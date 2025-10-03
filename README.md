@@ -65,6 +65,7 @@ Description:
 1. infos
 1. script
 1. weather
+1. editor
 
 # Configuration file
 

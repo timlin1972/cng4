@@ -1,15 +1,24 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use log::Level::{Error, Info, Warn};
+use ratatui::{
+    Frame,
+    style::{Color, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+};
 use rumqttc::{AsyncClient, Event, Incoming, LastWill, MqttOptions, Publish, QoS};
 use tokio::sync::{broadcast, mpsc::Sender};
 
 use crate::arguments::Mode;
 use crate::consts;
 use crate::globals;
-use crate::messages::{self as msgs, Action, Data, DeviceKey, Msg};
-use crate::plugins::{plugin_devices, plugin_panels, plugins_main};
-use crate::utils::{self, common};
+use crate::messages::{self as msgs, Action, DeviceKey, Key, Msg};
+use crate::plugins::{
+    plugin_devices,
+    plugins_main::{self, Plugin},
+};
+use crate::utils::{self, common, panel};
 
 pub const MODULE: &str = "mqtt";
 const BROKER: &str = "broker.emqx.io";
@@ -17,17 +26,19 @@ const BROKER_PORT: u16 = 1883;
 const MQTT_KEEP_ALIVE: u64 = 300;
 const RESTART_DELAY: u64 = 60;
 const TOPIC_PREFIX: &str = "tln";
+const MAX_OUTPUT_LEN: usize = 300;
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     shutdown_tx: broadcast::Sender<()>,
     mode: Mode,
-    gui_panel: Option<String>,
     client: Option<AsyncClient>,
+    logs: Vec<String>,
+    panel_info: panel::PanelInfo,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(
         msg_tx: Sender<Msg>,
         shutdown_tx: broadcast::Sender<()>,
@@ -37,8 +48,9 @@ impl Plugin {
             msg_tx,
             shutdown_tx,
             mode,
-            gui_panel: None,
             client: None,
+            logs: vec![],
+            panel_info: panel::PanelInfo::new(panel::PanelType::Normal),
         };
 
         myself.info(consts::NEW.to_string()).await;
@@ -93,7 +105,6 @@ impl Plugin {
         // 5. Receive
         let msg_tx_clone = self.msg_tx.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
-        let gui_panel_clone = self.gui_panel.clone();
         let mode_clone = self.mode.clone();
         let client_clone = client.clone();
 
@@ -104,7 +115,7 @@ impl Plugin {
             loop {
                 tokio::select! {
                     event = connection.poll() => {
-                        if process_event(&msg_tx_clone, &mode_clone, &gui_panel_clone, event).await {
+                        if process_event(&msg_tx_clone, &mode_clone, event).await {
                             break;
                         }
                     }
@@ -145,51 +156,12 @@ impl Plugin {
         self.client = Some(client);
     }
 
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_show(&self) {
-        self.info(Action::Show.to_string()).await;
-        self.info(format!("  Mode: {}", self.mode)).await;
-        self.info(format!("  Gui panel: {:?}", self.gui_panel))
-            .await;
-        self.info(format!(
-            "  MQTT Client connected: {}",
-            self.client.is_some()
-        ))
-        .await;
-    }
-
-    async fn handle_cmd_help(&self) {
-        self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
-    }
-
-    async fn handle_cmd_gui(&mut self, cmd_parts: Vec<String>) {
-        if let Some(gui_panel) = cmd_parts.get(3) {
-            self.gui_panel = Some(gui_panel.to_string());
-        } else {
-            self.warn(common::MsgTemplate::MissingParameters.format(
-                "<gui_panel>",
-                Action::Gui.as_ref(),
-                &cmd_parts.join(" "),
-            ))
-            .await;
-        }
-    }
-
-    async fn handle_cmd_restart(&mut self) {
+    async fn handle_action_restart(&mut self) {
         self.info(Action::Restart.to_string()).await;
         self.restart().await;
     }
 
-    async fn handle_cmd_disconnected(&mut self) {
+    async fn handle_action_disconnected(&mut self) {
         self.info(Action::Disconnected.to_string()).await;
         self.client = None;
     }
@@ -214,7 +186,6 @@ impl Plugin {
                     output_push(
                         &self.msg_tx,
                         &self.mode,
-                        &self.gui_panel,
                         Info,
                         format!("📤 pub:: {key} {name} {payload}"),
                     )
@@ -224,7 +195,7 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_publish(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_publish(&mut self, cmd_parts: &[String]) {
         if let (Some(retain), Some(key), Some(payload)) =
             (cmd_parts.get(3), cmd_parts.get(4), cmd_parts.get(5))
         {
@@ -244,60 +215,281 @@ impl Plugin {
             .await;
         }
     }
+
+    async fn handle_action_show(&self) {
+        self.info(Action::Show.to_string()).await;
+        self.info(format!("  Mode: {}", self.mode)).await;
+        self.info(format!(
+            "  MQTT Client connected: {}",
+            self.client.is_some()
+        ))
+        .await;
+    }
+
+    async fn handle_action_help(&self) {
+        self.info(Action::Help.to_string()).await;
+    }
+
+    async fn handle_action_gui(&mut self, cmd_parts: &[String]) {
+        if let (Some(panel_type), Some(x), Some(y), Some(w), Some(h)) = (
+            cmd_parts.get(3),
+            cmd_parts.get(4),
+            cmd_parts.get(5),
+            cmd_parts.get(6),
+            cmd_parts.get(7),
+        ) {
+            let panel_type = panel_type.parse::<panel::PanelType>().unwrap();
+            let x = x.parse::<u16>().unwrap();
+            let y = y.parse::<u16>().unwrap();
+            let w = w.parse::<u16>().unwrap();
+            let h = h.parse::<u16>().unwrap();
+
+            self.panel_info = panel::PanelInfo {
+                panel_type,
+                x,
+                y,
+                w,
+                h,
+            };
+
+            self.cmd(format!(
+                "{} {} {} {MODULE}",
+                consts::P,
+                plugins_main::MODULE,
+                Action::InsertPanel,
+            ))
+            .await;
+        } else {
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<panel_type> <x> <y> <width> <height>",
+                Action::Gui.as_ref(),
+                &cmd_parts.join(" "),
+            ))
+            .await;
+        }
+    }
+
+    async fn handle_action_key_alt_c(&mut self) {
+        self.logs.clear();
+        self.cmd(format!(
+            "{} {} {} {}",
+            consts::P,
+            plugins_main::MODULE,
+            Action::Redraw,
+            MODULE
+        ))
+        .await;
+    }
+
+    async fn handle_action_key_alt(&mut self, key: Key) {
+        match key {
+            Key::AltUp => {
+                if self.panel_info.y > 0 {
+                    self.panel_info.y -= 1;
+                }
+            }
+            Key::AltDown => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                self.panel_info.y += 1;
+                // }
+            }
+            Key::AltLeft => {
+                if self.panel_info.x > 0 {
+                    self.panel_info.x -= 1;
+                }
+            }
+            Key::AltRight => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                self.panel_info.x += 1;
+                // }
+            }
+            Key::AltW => {
+                if self.panel_info.h > 3 {
+                    self.panel_info.h -= 1;
+                }
+            }
+            Key::AltS => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                self.panel_info.h += 1;
+                // }
+            }
+            Key::AltA => {
+                if self.panel_info.w > 10 {
+                    self.panel_info.w -= 1;
+                }
+            }
+            Key::AltD => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                self.panel_info.w += 1;
+                // }
+            }
+            _ => {}
+        }
+
+        self.cmd(format!(
+            "{} {} {} {MODULE}",
+            consts::P,
+            plugins_main::MODULE,
+            Action::Redraw,
+        ))
+        .await;
+    }
+
+    async fn handle_action_key(&mut self, cmd_parts: &[String]) {
+        if let Some(key) = cmd_parts.get(3) {
+            match key.parse::<Key>() {
+                Ok(_k @ Key::AltC) => self.handle_action_key_alt_c().await,
+                Ok(k @ Key::AltUp)
+                | Ok(k @ Key::AltDown)
+                | Ok(k @ Key::AltLeft)
+                | Ok(k @ Key::AltRight)
+                | Ok(k @ Key::AltW)
+                | Ok(k @ Key::AltS)
+                | Ok(k @ Key::AltA)
+                | Ok(k @ Key::AltD) => self.handle_action_key_alt(k).await,
+                _ => (),
+            }
+        }
+    }
+
+    async fn handle_action_output_push(&mut self, cmd_parts: &[String]) {
+        if let Some(output) = cmd_parts.get(3) {
+            self.logs.push(output.to_string());
+            let logs_len = self.logs.len();
+            if logs_len > MAX_OUTPUT_LEN {
+                self.logs.drain(..logs_len - MAX_OUTPUT_LEN);
+            }
+
+            self.cmd(format!(
+                "{} {} {}",
+                consts::P,
+                plugins_main::MODULE,
+                Action::Redraw,
+            ))
+            .await;
+        } else {
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<output>",
+                Action::OutputUpdate.as_ref(),
+                &cmd_parts.join(" "),
+            ))
+            .await;
+        }
+    }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err.clone()).await;
-                return;
-            }
-        };
+    fn panel_info(&self) -> &panel::PanelInfo {
+        &self.panel_info
+    }
 
+    async fn handle_action(&mut self, action: Action, cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Gui => self.handle_cmd_gui(cmd_parts).await,
-            Action::Restart => self.handle_cmd_restart().await,
-            Action::Disconnected => self.handle_cmd_disconnected().await,
-            Action::Publish => self.handle_cmd_publish(cmd_parts).await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Gui => self.handle_action_gui(cmd_parts).await,
+            Action::Restart => self.handle_action_restart().await,
+            Action::Disconnected => self.handle_action_disconnected().await,
+            Action::Publish => self.handle_action_publish(cmd_parts).await,
+            Action::Key => self.handle_action_key(cmd_parts).await,
+            Action::OutputPush => self.handle_action_output_push(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }
     }
+
+    fn draw(&mut self, frame: &mut Frame, active: bool) {
+        // Clear the panel area
+        let (panel_x, panel_y, panel_width, panel_height) = panel::caculate_position(
+            frame,
+            self.panel_info.x,
+            self.panel_info.y,
+            self.panel_info.w,
+            self.panel_info.h,
+        );
+
+        let panel_area =
+            panel::panel_rect(panel_x, panel_y, panel_width, panel_height, frame.area());
+        frame.render_widget(Clear, panel_area);
+
+        // Draw the panel block
+        let panel_block = Block::default()
+            .borders(Borders::ALL)
+            .title(MODULE)
+            .padding(ratatui::widgets::Padding::new(0, 0, 0, 0))
+            .border_type(if active {
+                BorderType::Double
+            } else {
+                BorderType::Plain
+            })
+            .style(Style::default().fg(if active { Color::Cyan } else { Color::White }));
+        frame.render_widget(panel_block.clone(), panel_area);
+
+        // Draw the panel content
+        let area_height = panel_area.height;
+
+        let scroll_offset = if self.logs.len() as u16 > (area_height - 3) {
+            self.logs.len() as u16 - (area_height - 3)
+        } else {
+            0
+        };
+
+        let lines: Vec<Line> = self
+            .logs
+            .iter()
+            .flat_map(|entry| {
+                entry
+                    .split('\n') // 處理內部的換行
+                    .map(|subline| {
+                        if subline.contains("[W]") {
+                            Line::from(Span::styled(
+                                subline.to_string(),
+                                Style::default().fg(Color::Yellow),
+                            ))
+                        } else if subline.contains("[E]") {
+                            Line::from(Span::styled(
+                                subline.to_string(),
+                                Style::default().fg(Color::Red),
+                            ))
+                        } else {
+                            Line::from(Span::raw(subline.to_string()))
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let text = Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(if active { Color::Cyan } else { Color::White }))
+            .scroll((scroll_offset, 0));
+
+        frame.render_widget(text, panel_block.inner(panel_area));
+    }
 }
 
 async fn process_event(
     msg_tx: &Sender<Msg>,
     mode: &Mode,
-    gui_panel: &Option<String>,
     event: Result<Event, rumqttc::ConnectionError>,
 ) -> bool {
     match event {
         Ok(Event::Incoming(Incoming::Publish(publish))) => {
-            process_event_publish(msg_tx, mode, gui_panel, &publish).await;
+            process_event_publish(msg_tx, mode, &publish).await;
         }
         Ok(_) => { /* 其他事件略過 */ }
         Err(e) => {
-            output_push(
-                msg_tx,
-                mode,
-                gui_panel,
-                Error,
-                format!("❌ Event loop error: {e:?}"),
-            )
-            .await;
+            output_push(msg_tx, mode, Error, format!("❌ Event loop error: {e:?}")).await;
             return true;
         }
     }
@@ -305,12 +497,7 @@ async fn process_event(
     false
 }
 
-async fn process_event_publish(
-    msg_tx: &Sender<Msg>,
-    mode: &Mode,
-    gui_panel: &Option<String>,
-    publish: &Publish,
-) {
+async fn process_event_publish(msg_tx: &Sender<Msg>, mode: &Mode, publish: &Publish) {
     let topic = &publish.topic;
     let re =
         regex::Regex::new(&format!(r"^{TOPIC_PREFIX}/([^/]+)/([^/]+)$")).expect("Failed to regex");
@@ -331,7 +518,6 @@ async fn process_event_publish(
                 output_push(
                     msg_tx,
                     mode,
-                    gui_panel,
                     Info,
                     format!("📩 pub:: {key} {name} {payload}"),
                 )
@@ -353,7 +539,6 @@ async fn process_event_publish(
                 output_push(
                     msg_tx,
                     mode,
-                    gui_panel,
                     Error,
                     format!("📩 pub:: {key} {name} {payload}"),
                 )
@@ -363,27 +548,19 @@ async fn process_event_publish(
     }
 }
 
-async fn output_push(
-    msg_tx: &Sender<Msg>,
-    mode: &Mode,
-    gui_panel: &Option<String>,
-    level: log::Level,
-    msg: String,
-) {
+async fn output_push(msg_tx: &Sender<Msg>, mode: &Mode, level: log::Level, msg: String) {
     let ts = utils::time::ts();
     match mode {
         Mode::Gui => {
+            let msg = format!(
+                "{} [{}] {msg}",
+                utils::time::ts_str(ts),
+                common::level_to_str(&level)
+            );
             msgs::cmd(
                 msg_tx,
                 MODULE,
-                &format!(
-                    "{} {} {} {} '{} [{level}] {msg}'",
-                    consts::P,
-                    plugin_panels::MODULE,
-                    Action::OutputPush,
-                    gui_panel.as_ref().unwrap(),
-                    utils::time::ts_str(ts)
-                ),
+                &format!("{} {MODULE} {} '{msg}'", consts::P, Action::OutputPush,),
             )
             .await;
         }

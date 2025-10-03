@@ -5,8 +5,11 @@ use tokio::sync::mpsc::Sender;
 use crate::arguments::Mode;
 use crate::consts;
 use crate::globals;
-use crate::messages::{self as msgs, Action, Data, DeviceKey, InfoKey, Msg};
-use crate::plugins::{plugin_infos, plugin_system, plugins_main};
+use crate::messages::{Action, DeviceKey, InfoKey, Msg};
+use crate::plugins::{
+    plugin_infos, plugin_system,
+    plugins_main::{self, Plugin},
+};
 use crate::utils::{self, api, common};
 
 pub const MODULE: &str = "devices";
@@ -24,13 +27,13 @@ pub struct DevInfo {
 }
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     mode: Mode,
     devices: Vec<DevInfo>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, mode: Mode) -> Result<Self> {
         let myself = Self {
             msg_tx,
@@ -43,19 +46,7 @@ impl Plugin {
         Ok(myself)
     }
 
-    async fn cmd(&self, cmd: String) {
-        msgs::cmd(&self.msg_tx, MODULE, &cmd).await;
-    }
-
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!(
             "  {:<12} {:<7} {:<8} {:<15} {:<6} {:<12} {:<16}",
@@ -78,10 +69,8 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
         self.info(format!("  {} <device_name> \"<cmd>\"", Action::Cmd))
             .await;
     }
@@ -259,7 +248,7 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_update(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update(&mut self, cmd_parts: &[String]) {
         if let (Some(device_key), Some(name), Some(value)) =
             (cmd_parts.get(3), cmd_parts.get(4), cmd_parts.get(5))
         {
@@ -292,7 +281,7 @@ impl Plugin {
         }
     }
 
-    pub async fn handle_cmd(&mut self, cmd_parts: Vec<String>) {
+    pub async fn handle_cmd(&mut self, cmd_parts: &[String]) {
         if let (Some(device_name), Some(cmd)) = (cmd_parts.get(3), cmd_parts.get(4)) {
             if let Some(device) = self
                 .devices
@@ -327,26 +316,20 @@ impl Plugin {
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err.clone()).await;
-                return;
-            }
-        };
-
+    async fn handle_action(&mut self, action: Action, cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Update => self.handle_cmd_update(cmd_parts).await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Update => self.handle_action_update(cmd_parts).await,
             Action::Cmd => self.handle_cmd(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))

@@ -1,12 +1,13 @@
 pub mod plugin_cfg;
 pub mod plugin_cli;
+pub mod plugin_command;
 pub mod plugin_devices;
+pub mod plugin_editor;
 pub mod plugin_gui;
 pub mod plugin_infos;
 pub mod plugin_log;
 pub mod plugin_mqtt;
 pub mod plugin_music;
-pub mod plugin_panels;
 pub mod plugin_script;
 pub mod plugin_system;
 pub mod plugin_weather;

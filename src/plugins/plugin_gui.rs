@@ -7,16 +7,16 @@ use tokio::sync::{Mutex, broadcast, mpsc::Sender};
 use tokio::task;
 
 use crate::consts;
-use crate::globals;
-use crate::messages::{self as msgs, Action, Data, Key, Msg};
-use crate::plugins::{plugin_panels, plugins_main};
-use crate::utils::{self, common};
+use crate::messages::{self as msgs, Action, Key, Msg};
+use crate::plugins::plugins_main::{self, Plugin};
+use crate::utils::common;
 
 pub const MODULE: &str = "gui";
 const PROMPT: &str = "> ";
+const OUTPUT_PANEL: &str = "command";
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     shutdown_tx: broadcast::Sender<()>,
     output: Arc<Mutex<String>>,
@@ -24,7 +24,7 @@ pub struct Plugin {
     history_index: Arc<Mutex<usize>>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, shutdown_tx: broadcast::Sender<()>) -> Result<Self> {
         let myself = Self {
             msg_tx: msg_tx.clone(),
@@ -57,30 +57,17 @@ impl Plugin {
             history_clone,
             history_index_clone,
         ));
-
-        let shutdown_rx = self.shutdown_tx.subscribe();
-        tokio::spawn(update_subtitle(self.msg_tx.clone(), shutdown_rx));
     }
 
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
     }
 
-    async fn handle_cmd_key_up(&mut self) {
+    async fn handle_action_key_up(&mut self) {
         let mut output = self.output.lock().await;
         let history = self.history.lock().await;
         let mut history_index = self.history_index.lock().await;
@@ -93,7 +80,7 @@ impl Plugin {
         output_update(&self.msg_tx, &format!("{PROMPT}{output}")).await;
     }
 
-    async fn handle_cmd_key_down(&mut self) {
+    async fn handle_action_key_down(&mut self) {
         let mut output = self.output.lock().await;
         let history = self.history.lock().await;
         let mut history_index = self.history_index.lock().await;
@@ -110,11 +97,11 @@ impl Plugin {
         output_update(&self.msg_tx, &format!("{PROMPT}{output}")).await;
     }
 
-    async fn handle_cmd_key(&mut self, cmd_parts: &[String]) {
+    async fn handle_action_key(&mut self, cmd_parts: &[String]) {
         if let Some(key) = cmd_parts.get(3) {
             match key.parse::<Key>() {
-                Ok(Key::Up) => self.handle_cmd_key_up().await,
-                Ok(Key::Down) => self.handle_cmd_key_down().await,
+                Ok(Key::Up) => self.handle_action_key_up().await,
+                Ok(Key::Down) => self.handle_action_key_down().await,
                 _ => (),
             }
         }
@@ -122,26 +109,20 @@ impl Plugin {
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err).await;
-                return;
-            }
-        };
-
+    async fn handle_action(&mut self, action: Action, cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Key => self.handle_cmd_key(&cmd_parts).await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Key => self.handle_action_key(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
@@ -178,25 +159,28 @@ async fn handle_keycode_enter(
 
     // ignore if the input is as the same as the last one
     if history.is_empty() || *history.last().unwrap() != *output {
-        history.push(output.clone());
-        *history_index = history.len();
+        // ignore enter only
+        if !output.is_empty() {
+            history.push(output.clone());
+            *history_index = history.len();
+        }
     }
 
-    cmd(msg_tx, &output).await;
+    msgs::cmd(msg_tx, MODULE, &output).await;
 
     output.clear();
     output_update(msg_tx, &format!("{PROMPT}{output}")).await;
 }
 
 async fn handle_keycode_key(msg_tx: &Sender<Msg>, key: Key) {
-    cmd(
+    msgs::cmd(
         msg_tx,
+        MODULE,
         &format!(
-            "{} {} {} {}",
+            "{} {} {} {key}",
             consts::P,
-            plugin_panels::MODULE,
-            Action::Key,
-            key
+            plugins_main::MODULE,
+            Action::Key
         ),
     )
     .await;
@@ -236,6 +220,14 @@ async fn handle_keycode_alt(msg_tx: &Sender<Msg>, key: KeyCode) {
         KeyCode::Char('s') => handle_keycode_key(msg_tx, Key::AltS).await,
         KeyCode::Char('a') => handle_keycode_key(msg_tx, Key::AltA).await,
         KeyCode::Char('d') => handle_keycode_key(msg_tx, Key::AltD).await,
+        _ => (),
+    };
+}
+
+async fn handle_keycode_control(msg_tx: &Sender<Msg>, key: KeyCode) {
+    match key {
+        KeyCode::Char('x') => handle_keycode_key(msg_tx, Key::ControlX).await,
+        KeyCode::Char('s') => handle_keycode_key(msg_tx, Key::ControlS).await,
         _ => (),
     };
 }
@@ -282,7 +274,9 @@ async fn start_input_loop(
             Some(key) = input_rx.recv() => {
                 if key.modifiers == KeyModifiers::ALT {
                     handle_keycode_alt(&msg_tx, key.code).await;
-                }   else {
+                } else if key.modifiers == KeyModifiers::CONTROL {
+                    handle_keycode_control(&msg_tx, key.code).await;
+                } else {
                     handle_keycode(&output, &msg_tx, key.code, &history, &history_index).await;
                 }
             }
@@ -302,44 +296,10 @@ async fn output_update(msg_tx: &Sender<Msg>, msg: &str) {
         msg_tx,
         MODULE,
         &format!(
-            "{} {} {} {} '{}'",
+            "{} {OUTPUT_PANEL} {} '{msg}'",
             consts::P,
-            plugin_panels::MODULE,
             Action::OutputUpdate,
-            consts::COMMAND,
-            msg
         ),
     )
     .await;
-}
-
-async fn cmd(msg_tx: &Sender<Msg>, msg: &str) {
-    msgs::cmd(msg_tx, MODULE, msg).await;
-}
-
-async fn update_subtitle(msg_tx: Sender<Msg>, mut shutdown_rx: broadcast::Receiver<()>) {
-    let sys_name = globals::get_sys_name();
-    let version = env!("CARGO_PKG_VERSION");
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
-                let ts = utils::time::ts();
-                let sub_title = format!(" - {sys_name} (v{version}) - {}", utils::time::ts_str(ts));
-
-                cmd(
-                    &msg_tx,
-                    &format!(
-                        "{} {} {} {} '{sub_title}'",
-                        consts::P,
-                        plugin_panels::MODULE,
-                        Action::SubTitle,
-                        consts::COMMAND,
-                    ),
-                ).await;
-            }
-            _ = shutdown_rx.recv() => {
-                break;
-            }
-        }
-    }
 }

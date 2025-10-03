@@ -4,8 +4,8 @@ use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
 use crate::consts;
-use crate::messages::{self as msgs, Action, Data, Msg, WeatherKey};
-use crate::plugins::plugins_main;
+use crate::messages::{self as msgs, Action, Msg, WeatherKey};
+use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{
     common,
     weather::{self, City, Weather, WeatherDaily},
@@ -16,14 +16,14 @@ const WEATHER_POLLING: u64 = 15 * 60; // 15 mins
 const ADD_PARAMS: &str = "<name> <latitude> <longitude>";
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     mode: Mode,
     gui_panel: Option<String>,
     cities: Vec<City>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, mode: Mode) -> Result<Self> {
         let myself = Self {
             msg_tx,
@@ -63,19 +63,7 @@ impl Plugin {
         });
     }
 
-    async fn cmd(&self, msg: String) {
-        msgs::cmd(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  Mode: {}", self.mode)).await;
         self.info(format!("  Gui panel: {:?}", self.gui_panel))
@@ -91,15 +79,13 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
-        self.info(format!("  {} <gui_panel>", Action::Gui)).await;
+        self.info(format!("  {}", Action::Update)).await;
         self.info(format!("  {} {ADD_PARAMS}", Action::Add)).await;
     }
 
-    async fn handle_cmd_gui(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_gui(&mut self, cmd_parts: &[String]) {
         if let Some(gui_panel) = cmd_parts.get(3) {
             self.gui_panel = Some(gui_panel.to_string());
         } else {
@@ -113,7 +99,7 @@ impl Plugin {
     }
 
     // p weather update
-    async fn handle_cmd_update_cities(&mut self) {
+    async fn handle_action_update_cities(&mut self) {
         let cities = self.cities.clone();
         let msg_tx_clone = self.msg_tx.clone();
         let mode = self.mode.clone();
@@ -207,7 +193,7 @@ impl Plugin {
     }
 
     // p weather update summary ...
-    async fn handle_cmd_update_summary(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_summary(&mut self, cmd_parts: &[String]) {
         #[allow(clippy::collapsible_if)]
         if let (Some(city_name), Some(time), Some(temperature), Some(weathercode)) = (
             cmd_parts.get(4),
@@ -237,7 +223,7 @@ impl Plugin {
     }
 
     // p weather update daily ...
-    async fn handle_cmd_update_daily(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_daily(&mut self, cmd_parts: &[String]) {
         #[allow(clippy::collapsible_if)]
         if let (
             Some(city_name),
@@ -287,11 +273,11 @@ impl Plugin {
 
     // p weather update
     // p weather update <weather_key> ...
-    async fn handle_cmd_update(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update(&mut self, cmd_parts: &[String]) {
         if let Some(weather_key) = cmd_parts.get(3) {
             match weather_key.parse::<WeatherKey>() {
-                Ok(WeatherKey::Summary) => self.handle_cmd_update_summary(cmd_parts).await,
-                Ok(WeatherKey::Daily) => self.handle_cmd_update_daily(cmd_parts).await,
+                Ok(WeatherKey::Summary) => self.handle_action_update_summary(cmd_parts).await,
+                Ok(WeatherKey::Daily) => self.handle_action_update_daily(cmd_parts).await,
                 Err(_) => {
                     self.warn(common::MsgTemplate::InvalidParameters.format(
                         &format!("<weather_key> (`{weather_key}`)"),
@@ -302,11 +288,11 @@ impl Plugin {
                 }
             }
         } else {
-            self.handle_cmd_update_cities().await;
+            self.handle_action_update_cities().await;
         }
     }
 
-    async fn handle_cmd_add(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_add(&mut self, cmd_parts: &[String]) {
         if let (Some(city_name), Some(latitude), Some(longitude)) =
             (cmd_parts.get(3), cmd_parts.get(4), cmd_parts.get(5))
         {
@@ -361,28 +347,22 @@ impl Plugin {
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err).await;
-                return;
-            }
-        };
-
+    async fn handle_action(&mut self, action: Action, cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Gui => self.handle_cmd_gui(cmd_parts).await,
-            Action::Update => self.handle_cmd_update(cmd_parts).await,
-            Action::Add => self.handle_cmd_add(cmd_parts).await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Gui => self.handle_action_gui(cmd_parts).await,
+            Action::Update => self.handle_action_update(cmd_parts).await,
+            Action::Add => self.handle_action_add(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

@@ -8,25 +8,26 @@ use base64::Engine as _;
 use base64::engine::general_purpose;
 use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::Sender;
+use tokio::task::JoinSet;
 use walkdir::WalkDir;
 
 use crate::consts;
 use crate::globals;
-use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::plugins_main;
+use crate::messages::{self as msgs, Action, Msg};
+use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::{api, common, ffmpeg, yt_dlp};
 
 pub const MODULE: &str = "music";
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     is_available: bool,
     yt_dlp: yt_dlp::YtDlp,
     ffmpeg: ffmpeg::Ffmpeg,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let mut myself = Self {
             msg_tx: msg_tx.clone(),
@@ -46,23 +47,20 @@ impl Plugin {
         self.is_available = self.yt_dlp.is_available && self.ffmpeg.is_available;
     }
 
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  available: {}", self.is_available))
             .await;
-        self.yt_dlp.handle_cmd_show().await;
-        self.ffmpeg.handle_cmd_show().await;
+        self.yt_dlp.handle_action_show().await;
+        self.ffmpeg.handle_action_show().await;
+
+        let files = common::list_files(consts::NAS_MUSIC_FOLDER);
+        for file in files {
+            self.info(file).await;
+        }
     }
 
-    async fn handle_cmd_download(&mut self, cmd_parts: &[String]) {
+    async fn handle_action_download(&mut self, cmd_parts: &[String]) {
         self.info(Action::Show.to_string()).await;
 
         if !self.is_available {
@@ -82,10 +80,8 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
         self.info(format!("  {} <url>", Action::Download)).await;
         self.info("    url: the URL to download".to_string()).await;
         self.info(format!("  {}", Action::Upload)).await;
@@ -99,7 +95,7 @@ impl Plugin {
             .await;
     }
 
-    async fn handle_cmd_upload(&self) {
+    async fn handle_action_upload(&self) {
         self.info(Action::Upload.to_string()).await;
 
         if globals::get_server_ip().is_none() {
@@ -116,6 +112,8 @@ impl Plugin {
         // for all files in consts::NAS_MUSIC_FOLDER to send upload request
         let msg_tx_clone = self.msg_tx.clone();
         tokio::task::spawn(async move {
+            let mut count = 0;
+            let mut join_set = JoinSet::new();
             for entry in WalkDir::new(source_dir)
                 .into_iter()
                 .filter_map(Result::ok)
@@ -134,27 +132,61 @@ impl Plugin {
 
                 let target_path = target_path.clone();
                 let server_ip = server_ip.clone();
-                let msg_tx_clone = msg_tx_clone.clone();
-                tokio::task::spawn(async move {
+                let msg_tx_clone_clone = msg_tx_clone.clone();
+
+                count += 1;
+                let count_clone = count;
+                join_set.spawn(async move {
+                    let filename = target_path.to_string_lossy().to_string();
+                    msgs::info(
+                        &msg_tx_clone_clone,
+                        MODULE,
+                        &format!(
+                            "  Uploading file #{count_clone}: `{}`",
+                            common::shorten(&filename, 20, 0)
+                        ),
+                    )
+                    .await;
                     api::post_upload(
-                        &msg_tx_clone,
+                        &msg_tx_clone_clone,
                         MODULE,
                         server_ip.as_str(),
                         &api::UploadRequest {
                             data: api::UploadData {
-                                filename: target_path.to_string_lossy().to_string(),
+                                filename: filename.clone(),
                                 content: encoded,
                                 mtime,
                             },
                         },
                     )
                     .await;
+                    msgs::info(
+                        &msg_tx_clone_clone,
+                        MODULE,
+                        &format!(
+                            "  Uploaded file #{count_clone}: `{}`",
+                            common::shorten(&filename, 20, 0)
+                        ),
+                    )
+                    .await;
                 });
             }
+
+            while let Some(res) = join_set.join_next().await {
+                if let Err(e) = res {
+                    msgs::warn(&msg_tx_clone, MODULE, &format!("A upload task failed: {e}")).await;
+                }
+            }
+            msgs::info(
+                &msg_tx_clone,
+                MODULE,
+                &format!("  Uploaded {count} (all) files."),
+            )
+            .await;
         });
     }
 
-    async fn handle_cmd_remove(&self) {
+    async fn handle_action_remove(&self) {
         self.info(Action::Remove.to_string()).await;
 
         // remove all files in consts::NAS_MUSIC_FOLDER
@@ -165,28 +197,22 @@ impl Plugin {
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err).await;
-                return;
-            }
-        };
-
+    async fn handle_action(&mut self, action: Action, cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Download => self.handle_cmd_download(&cmd_parts).await,
-            Action::Upload => self.handle_cmd_upload().await,
-            Action::Remove => self.handle_cmd_remove().await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Download => self.handle_action_download(cmd_parts).await,
+            Action::Upload => self.handle_action_upload().await,
+            Action::Remove => self.handle_action_remove().await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

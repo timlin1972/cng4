@@ -77,6 +77,10 @@ pub enum Key {
     AltA,
     #[strum(serialize = "alt_d")]
     AltD,
+    #[strum(serialize = "ctrl_x")]
+    ControlX,
+    #[strum(serialize = "ctrl_s")]
+    ControlS,
 }
 
 #[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
@@ -93,8 +97,6 @@ pub enum Action {
     Download,
     #[strum(serialize = "help")]
     Help,
-    #[strum(serialize = "create")]
-    Create,
     #[strum(serialize = "gui")]
     Gui,
     #[strum(serialize = "output_update")]
@@ -103,8 +105,6 @@ pub enum Action {
     OutputPush,
     #[strum(serialize = "key")]
     Key,
-    #[strum(serialize = "sub_title")]
-    SubTitle,
     #[strum(serialize = "restart")]
     Restart,
     #[strum(serialize = "disconnected")]
@@ -121,6 +121,14 @@ pub enum Action {
     Remove,
     #[strum(serialize = "dest")]
     Dest,
+    #[strum(serialize = "open")]
+    Open,
+    #[strum(serialize = "popup")]
+    Popup,
+    #[strum(serialize = "insert_panel")]
+    InsertPanel,
+    #[strum(serialize = "redraw")]
+    Redraw,
 }
 
 #[derive(Debug, Clone)]
@@ -232,6 +240,7 @@ async fn handle_msg_cmd(
         .unwrap_or(cmd);
     let cmd_parts: Vec<&str> = cmd.split_whitespace().collect();
     if cmd_parts.is_empty() {
+        info(msg_tx, MODULE, "").await;
         return;
     }
 
@@ -261,15 +270,15 @@ pub async fn cmd(msg_tx: &Sender<Msg>, module: &str, cmd: &str) {
 }
 
 async fn log(msg_tx: &Sender<Msg>, level: log::Level, module: &str, msg: &str) {
+    let msg = msg.replace("'", "_");
     cmd(
         msg_tx,
         module,
         &format!(
-            "{} {} {} {} '{msg}'",
+            "{} {} {} {level} '{msg}'",
             consts::P,
             plugin_log::MODULE,
             Action::Log,
-            level
         ),
     )
     .await;

@@ -1,32 +1,41 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use colored::*;
+use ratatui::{
+    Frame,
+    style::{Color, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+};
 use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
 use crate::consts;
 use crate::globals;
-use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::{plugin_panels, plugins_main};
-use crate::utils::{api, common, time};
+use crate::messages::{Action, Key, Msg};
+use crate::plugins::plugins_main::{self, Plugin};
+use crate::utils::{api, common, panel, time};
 
 pub const MODULE: &str = "log";
+const LOG_CAPACITY: usize = 1000;
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     mode: Mode,
-    gui_panel: Option<String>,
     dest: Option<String>,
+    logs: Vec<String>,
+    panel_info: panel::PanelInfo,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>, mode: Mode) -> Result<Self> {
         let myself = Self {
             msg_tx,
             mode,
-            gui_panel: None,
             dest: None,
+            logs: Vec::new(),
+            panel_info: panel::PanelInfo::new(panel::PanelType::Normal),
         };
 
         myself.info(consts::NEW.to_string()).await;
@@ -34,20 +43,24 @@ impl Plugin {
         Ok(myself)
     }
 
-    async fn cmd(&self, msg: String) {
-        msgs::cmd(&self.msg_tx, MODULE, &msg).await;
+    async fn handle_action_show(&self) {
+        self.info(Action::Show.to_string()).await;
+        self.info(format!("  Mode: {}", self.mode)).await;
+        self.info(format!("  Dest: {:?}", self.dest)).await;
+        self.info(format!("  Panel info: {:?}", self.panel_info))
+            .await;
     }
 
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
+    async fn handle_action_help(&self) {
+        self.info(Action::Help.to_string()).await;
+        self.info(format!("  {} <dest>", Action::Dest)).await;
+        self.info("    dest: the destination IP to send log messages to".to_string())
+            .await;
     }
 
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_log(&self, ts: u64, plugin: &str, cmd_parts: Vec<String>) {
+    async fn handle_action_log(&mut self, ts: u64, plugin: &str, cmd_parts: &[String]) {
         if let (Some(level), Some(msg)) = (cmd_parts.get(3), cmd_parts.get(4)) {
+            // if dest exists, send log to dest
             if let Some(dest) = &self.dest {
                 api::post_log(
                     dest,
@@ -64,68 +77,78 @@ impl Plugin {
                 .await;
             }
 
-            if self.mode == Mode::Gui && self.gui_panel.is_some() {
-                self.cmd(format!(
-                    "{} {} {} {} '{} {plugin:>10}: [{}] {msg}'",
-                    consts::P,
-                    plugin_panels::MODULE,
-                    Action::OutputPush,
-                    self.gui_panel.as_ref().unwrap(),
-                    time::ts_str(ts),
-                    common::level_str(level)
-                ))
-                .await;
-                return;
+            match self.mode {
+                Mode::Gui => {
+                    self.logs.push(format!(
+                        "{} {plugin:>10}: [{}] {msg}",
+                        time::ts_str(ts),
+                        common::level_str(level)
+                    ));
+                    if self.logs.len() > LOG_CAPACITY {
+                        self.logs.remove(0);
+                    }
+                    self.cmd(format!(
+                        "{} {} {} {}",
+                        consts::P,
+                        plugins_main::MODULE,
+                        Action::Redraw,
+                        MODULE
+                    ))
+                    .await;
+                }
+                Mode::Cli => {
+                    let msg = format!(
+                        "{} {plugin:>10}: [{}] {msg}",
+                        time::ts_str(ts),
+                        common::level_str(level)
+                    );
+                    let msg = match level.to_lowercase().as_str() {
+                        "info" => msg.normal(),
+                        "warn" => msg.yellow(),
+                        "error" => msg.red(),
+                        _ => msg.red().on_yellow(),
+                    };
+                    println!("{msg}");
+                }
             }
-
-            let msg = format!(
-                "{} {plugin:>10}: [{}] {msg}",
-                time::ts_str(ts),
-                common::level_str(level)
-            );
-            let msg = match level.to_lowercase().as_str() {
-                "info" => msg.normal(),
-                "warn" => msg.yellow(),
-                "error" => msg.red(),
-                _ => msg.red().on_yellow(),
-            };
-            println!("{msg}");
         } else {
             self.warn(format!("Incomplete log command: {cmd_parts:?}"))
                 .await;
         }
     }
 
-    async fn handle_cmd_show(&self) {
-        self.info(Action::Show.to_string()).await;
-        self.info(format!("  Mode: {}", self.mode)).await;
-        self.info(format!("  Gui panel: {:?}", self.gui_panel))
-            .await;
-        self.info(format!("  Dest: {:?}", self.dest)).await;
-    }
+    async fn handle_action_gui(&mut self, cmd_parts: &[String]) {
+        if let (Some(panel_type), Some(x), Some(y), Some(w), Some(h)) = (
+            cmd_parts.get(3),
+            cmd_parts.get(4),
+            cmd_parts.get(5),
+            cmd_parts.get(6),
+            cmd_parts.get(7),
+        ) {
+            let panel_type = panel_type.parse::<panel::PanelType>().unwrap();
+            let x = x.parse::<u16>().unwrap();
+            let y = y.parse::<u16>().unwrap();
+            let w = w.parse::<u16>().unwrap();
+            let h = h.parse::<u16>().unwrap();
 
-    async fn handle_cmd_help(&self) {
-        self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
-        self.info(format!("  {} <level> <message>", Action::Log))
-            .await;
-        self.info("    level: INFO, WARN, ERROR".to_string()).await;
-        self.info("    message: the log message".to_string()).await;
-        self.info(format!("  {} <gui_panel>", Action::Gui)).await;
-        self.info("    gui_panel: the GUI panel to send log messages to".to_string())
-            .await;
-        self.info(format!("  {} <dest>", Action::Dest)).await;
-        self.info("    dest: the destination IP to send log messages to".to_string())
-            .await;
-    }
+            self.panel_info = panel::PanelInfo {
+                panel_type,
+                x,
+                y,
+                w,
+                h,
+            };
 
-    async fn handle_cmd_gui(&mut self, cmd_parts: Vec<String>) {
-        if let Some(gui_panel) = cmd_parts.get(3) {
-            self.gui_panel = Some(gui_panel.to_string());
+            self.cmd(format!(
+                "{} {} {} {MODULE}",
+                consts::P,
+                plugins_main::MODULE,
+                Action::InsertPanel,
+            ))
+            .await;
         } else {
             self.warn(common::MsgTemplate::MissingParameters.format(
-                "<gui_panel>",
+                "<panel_type> <x> <y> <width> <height>",
                 Action::Gui.as_ref(),
                 &cmd_parts.join(" "),
             ))
@@ -133,42 +156,192 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_dest(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_dest(&mut self, cmd_parts: &[String]) {
         if let Some(dest) = cmd_parts.get(3) {
             self.dest = Some(dest.to_string());
         } else {
             self.dest = None;
         }
     }
+
+    async fn handle_action_key_alt_c(&mut self) {
+        self.logs.clear();
+        self.cmd(format!(
+            "{} {} {} {}",
+            consts::P,
+            plugins_main::MODULE,
+            Action::Redraw,
+            MODULE
+        ))
+        .await;
+    }
+
+    async fn handle_action_key_alt(&mut self, key: Key) {
+        match key {
+            Key::AltUp => {
+                if self.panel_info.y > 0 {
+                    self.panel_info.y -= 1;
+                }
+            }
+            Key::AltDown => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                self.panel_info.y += 1;
+                // }
+            }
+            Key::AltLeft => {
+                if self.panel_info.x > 0 {
+                    self.panel_info.x -= 1;
+                }
+            }
+            Key::AltRight => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                self.panel_info.x += 1;
+                // }
+            }
+            Key::AltW => {
+                if self.panel_info.h > 3 {
+                    self.panel_info.h -= 1;
+                }
+            }
+            Key::AltS => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                self.panel_info.h += 1;
+                // }
+            }
+            Key::AltA => {
+                if self.panel_info.w > 10 {
+                    self.panel_info.w -= 1;
+                }
+            }
+            Key::AltD => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                self.panel_info.w += 1;
+                // }
+            }
+            _ => {}
+        }
+
+        self.cmd(format!(
+            "{} {} {} {MODULE}",
+            consts::P,
+            plugins_main::MODULE,
+            Action::Redraw,
+        ))
+        .await;
+    }
+
+    async fn handle_action_key(&mut self, cmd_parts: &[String]) {
+        if let Some(key) = cmd_parts.get(3) {
+            match key.parse::<Key>() {
+                Ok(_k @ Key::AltC) => self.handle_action_key_alt_c().await,
+                Ok(k @ Key::AltUp)
+                | Ok(k @ Key::AltDown)
+                | Ok(k @ Key::AltLeft)
+                | Ok(k @ Key::AltRight)
+                | Ok(k @ Key::AltW)
+                | Ok(k @ Key::AltS)
+                | Ok(k @ Key::AltA)
+                | Ok(k @ Key::AltD) => self.handle_action_key_alt(k).await,
+                _ => (),
+            }
+        }
+    }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err.clone()).await;
-                return;
-            }
-        };
+    fn panel_info(&self) -> &panel::PanelInfo {
+        &self.panel_info
+    }
 
+    async fn handle_action(&mut self, action: Action, cmd_parts: &[String], msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Log => self.handle_cmd_log(msg.ts, &msg.plugin, cmd_parts).await,
-            Action::Gui => self.handle_cmd_gui(cmd_parts).await,
-            Action::Dest => self.handle_cmd_dest(cmd_parts).await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Log => self.handle_action_log(msg.ts, &msg.plugin, cmd_parts).await,
+            Action::Gui => self.handle_action_gui(cmd_parts).await,
+            Action::Dest => self.handle_action_dest(cmd_parts).await,
+            Action::Key => self.handle_action_key(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }
+    }
+
+    fn draw(&mut self, frame: &mut Frame, active: bool) {
+        // Clear the panel area
+        let (panel_x, panel_y, panel_width, panel_height) = panel::caculate_position(
+            frame,
+            self.panel_info.x,
+            self.panel_info.y,
+            self.panel_info.w,
+            self.panel_info.h,
+        );
+
+        let panel_area =
+            panel::panel_rect(panel_x, panel_y, panel_width, panel_height, frame.area());
+        frame.render_widget(Clear, panel_area);
+
+        // Draw the panel block
+        let panel_block = Block::default()
+            .borders(Borders::ALL)
+            .title(MODULE)
+            .padding(ratatui::widgets::Padding::new(0, 0, 0, 0))
+            .border_type(if active {
+                BorderType::Double
+            } else {
+                BorderType::Plain
+            })
+            .style(Style::default().fg(if active { Color::Cyan } else { Color::White }));
+        frame.render_widget(panel_block.clone(), panel_area);
+
+        // Draw the panel content
+        let area_height = panel_area.height;
+
+        let scroll_offset = if self.logs.len() as u16 > (area_height - 3) {
+            self.logs.len() as u16 - (area_height - 3)
+        } else {
+            0
+        };
+
+        let lines: Vec<Line> = self
+            .logs
+            .iter()
+            .flat_map(|entry| {
+                entry
+                    .split('\n') // 處理內部的換行
+                    .map(|subline| {
+                        if subline.contains("[W]") {
+                            Line::from(Span::styled(
+                                subline.to_string(),
+                                Style::default().fg(Color::Yellow),
+                            ))
+                        } else if subline.contains("[E]") {
+                            Line::from(Span::styled(
+                                subline.to_string(),
+                                Style::default().fg(Color::Red),
+                            ))
+                        } else {
+                            Line::from(Span::raw(subline.to_string()))
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let text = Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(if active { Color::Cyan } else { Color::White }))
+            .scroll((scroll_offset, 0));
+
+        frame.render_widget(text, panel_block.inner(panel_area));
     }
 }

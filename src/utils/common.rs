@@ -3,9 +3,9 @@ use std::path::Path;
 
 use sysinfo::Networks;
 use unicode_width::UnicodeWidthStr;
+use walkdir::WalkDir;
 
 use crate::consts;
-use crate::messages::Action;
 
 pub fn get_binary_name() -> String {
     if let Ok(path) = env::current_exe()
@@ -18,25 +18,6 @@ pub fn get_binary_name() -> String {
         "Failed to get binary name from path: {:?}",
         Path::new(&env::args().next().unwrap())
     );
-}
-
-pub fn get_cmd_action(cmd: &str) -> Result<(Vec<String>, Action), String> {
-    let cmd_parts = match shell_words::split(cmd) {
-        Ok(parts) => parts,
-        Err(_) => return Err(format!("Unknown message format: `{cmd}`")),
-    };
-
-    let action = match cmd_parts.get(2) {
-        Some(action) => action,
-        None => return Err(format!("Incomplete command: `{cmd}`")),
-    };
-
-    let action: Action = match action.parse() {
-        Ok(action) => action,
-        Err(_) => return Err(format!("Unknown action: `{action}` for command: `{cmd}`")),
-    };
-
-    Ok((cmd_parts, action))
 }
 
 pub fn temperature_str(temperature: Option<f32>) -> String {
@@ -57,6 +38,15 @@ pub fn level_str(level: &str) -> &str {
         "info" => "I",
         "warn" => "W",
         "error" => "E",
+        _ => "?",
+    }
+}
+
+pub fn level_to_str(level: &log::Level) -> &str {
+    match level {
+        log::Level::Info => "I",
+        log::Level::Warn => "W",
+        log::Level::Error => "E",
         _ => "?",
     }
 }
@@ -119,5 +109,50 @@ pub fn get_tailscale_ip_str(tailscale_ip: &Option<String>) -> String {
     match tailscale_ip {
         Some(ip) => ip.clone(),
         None => consts::NA.to_string(),
+    }
+}
+
+pub fn list_files(folder: &str) -> Vec<String> {
+    let mut output = Vec::new();
+
+    output.push("  Files:".to_string());
+    let mut has_files = false;
+    for entry in WalkDir::new(folder)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_type().is_file())
+    {
+        if let Some(path) = entry.path().to_str() {
+            // Get the relative path to the folder
+            if let Some(rel_path) = path.strip_prefix(folder) {
+                let rel_path = rel_path.trim_start_matches('/').to_string();
+                has_files = true;
+                output.push(format!("    - {}", rel_path));
+            }
+        }
+    }
+    if !has_files {
+        output.push("    (no files)".to_string());
+    }
+
+    output
+}
+
+pub fn shorten(s: &str, prefix: usize, suffix: usize) -> String {
+    let len = s.chars().count();
+
+    if len <= prefix + suffix {
+        s.to_string()
+    } else {
+        let prefix: String = s.chars().take(prefix).collect();
+        let suffix: String = s
+            .chars()
+            .rev()
+            .take(suffix)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        format!("{prefix}...{suffix}")
     }
 }

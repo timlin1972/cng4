@@ -70,7 +70,7 @@ impl Ffmpeg {
         msgs::info(&self.msg_tx, MODULE, &msg).await;
     }
 
-    pub async fn handle_cmd_show(&self) {
+    pub async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  available: {}", self.is_available))
             .await;

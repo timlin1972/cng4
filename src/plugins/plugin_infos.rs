@@ -1,13 +1,22 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{Datelike, NaiveDate};
+use ratatui::{
+    Frame,
+    style::{Color, Style},
+    text::{Line, Span, Text},
+    widgets::{Block, BorderType, Borders, Clear, Paragraph},
+};
 use tokio::sync::mpsc::Sender;
 
 use crate::consts;
-use crate::messages::{self as msgs, Action, Data, DeviceKey, InfoKey, Msg, WeatherKey};
-use crate::plugins::{plugin_devices, plugin_panels, plugin_weather, plugins_main};
+use crate::messages::{Action, DeviceKey, InfoKey, Key, Msg, WeatherKey};
+use crate::plugins::{
+    plugin_devices, plugin_weather,
+    plugins_main::{self, Plugin},
+};
 use crate::utils::{
-    self, common,
+    self, common, panel,
     weather::{self, City, Weather, WeatherDaily},
 };
 
@@ -17,9 +26,10 @@ const ADD_PARAMS: &str = "<name> <latitude> <longitude>";
 const NO_DATA: &str = "No data";
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
-    gui_panel: Option<String>,
+    panel_info: panel::PanelInfo,
+    output: String,
     page_idx: usize,
     sub_title: Vec<String>,
     // page 0
@@ -28,11 +38,12 @@ pub struct Plugin {
     cities: Vec<City>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let myself = Self {
             msg_tx,
-            gui_panel: None,
+            panel_info: panel::PanelInfo::new(panel::PanelType::Normal),
+            output: String::new(),
             page_idx: 0,
             sub_title: vec![
                 plugin_devices::MODULE.to_string(),
@@ -48,18 +59,15 @@ impl Plugin {
         Ok(myself)
     }
 
-    async fn output_update(&self, msg: &str) {
-        msgs::cmd(
-            &self.msg_tx,
-            MODULE,
-            &format!(
-                "{} {} {} {} '{msg}'",
-                consts::P,
-                plugin_panels::MODULE,
-                Action::OutputUpdate,
-                self.gui_panel.as_deref().unwrap(),
-            ),
-        )
+    async fn output_update(&mut self, msg: &str) {
+        self.output = msg.to_string();
+        self.cmd(format!(
+            "{} {} {} {}",
+            consts::P,
+            plugins_main::MODULE,
+            Action::Redraw,
+            MODULE
+        ))
         .await;
     }
 
@@ -170,21 +178,6 @@ impl Plugin {
     }
 
     async fn update(&mut self) {
-        // update sub_title
-        let sub_title = format!(
-            " - {}/{PAGES} - {}",
-            self.page_idx + 1,
-            self.sub_title[self.page_idx]
-        );
-        self.cmd(format!(
-            "{} {} {} {} '{sub_title}'",
-            consts::P,
-            plugin_panels::MODULE,
-            Action::SubTitle,
-            self.gui_panel.as_deref().unwrap()
-        ))
-        .await;
-
         let output = match self.page_idx {
             0 => self.update_devices().await,
             1 => self.update_weather_current().await,
@@ -195,40 +188,49 @@ impl Plugin {
         self.output_update(&output).await;
     }
 
-    async fn cmd(&self, msg: String) {
-        msgs::cmd(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
-        self.info(format!("  Gui panel: {:?}", self.gui_panel))
-            .await;
         for (idx, sub_title) in self.sub_title.iter().enumerate() {
             self.info(format!("  Page {}: {sub_title}", idx + 1)).await;
         }
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
-        self.info(format!("  {} <gui_panel>", Action::Gui)).await;
     }
 
-    async fn handle_cmd_gui(&mut self, cmd_parts: Vec<String>) {
-        if let Some(gui_panel) = cmd_parts.get(3) {
-            self.gui_panel = Some(gui_panel.to_string());
+    async fn handle_action_gui(&mut self, cmd_parts: &[String]) {
+        if let (Some(panel_type), Some(x), Some(y), Some(w), Some(h)) = (
+            cmd_parts.get(3),
+            cmd_parts.get(4),
+            cmd_parts.get(5),
+            cmd_parts.get(6),
+            cmd_parts.get(7),
+        ) {
+            let panel_type = panel_type.parse::<panel::PanelType>().unwrap();
+            let x = x.parse::<u16>().unwrap();
+            let y = y.parse::<u16>().unwrap();
+            let w = w.parse::<u16>().unwrap();
+            let h = h.parse::<u16>().unwrap();
+
+            self.panel_info = panel::PanelInfo {
+                panel_type,
+                x,
+                y,
+                w,
+                h,
+            };
+
+            self.cmd(format!(
+                "{} {} {} {MODULE}",
+                consts::P,
+                plugins_main::MODULE,
+                Action::InsertPanel,
+            ))
+            .await;
         } else {
             self.warn(common::MsgTemplate::MissingParameters.format(
-                "<gui_panel>",
+                "<panel_type> <x> <y> <width> <height>",
                 Action::Gui.as_ref(),
                 &cmd_parts.join(" "),
             ))
@@ -236,7 +238,7 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_update_devices_onboard(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_devices_onboard(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(onboard)) = (cmd_parts.get(5), cmd_parts.get(6)) {
             let ts = utils::time::ts();
 
@@ -266,7 +268,7 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_update_devices_version(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_devices_version(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(version)) = (cmd_parts.get(5), cmd_parts.get(6)) {
             let ts = utils::time::ts();
 
@@ -284,7 +286,7 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_update_devices_tailscale_ip(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_devices_tailscale_ip(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(tailscale_ip)) = (cmd_parts.get(5), cmd_parts.get(6)) {
             let ts = utils::time::ts();
 
@@ -302,7 +304,7 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_update_devices_temperature(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_devices_temperature(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(temperature)) = (cmd_parts.get(5), cmd_parts.get(6)) {
             let ts = utils::time::ts();
 
@@ -323,7 +325,7 @@ impl Plugin {
         }
     }
 
-    async fn handle_cmd_update_devices_app_uptime(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_devices_app_uptime(&mut self, cmd_parts: &[String]) {
         if let (Some(name), Some(app_uptime)) = (cmd_parts.get(5), cmd_parts.get(6)) {
             let ts = utils::time::ts();
 
@@ -342,19 +344,26 @@ impl Plugin {
     }
 
     // p infos update devices <device_key> <...>
-    async fn handle_cmd_update_devices(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_devices(&mut self, cmd_parts: &[String]) {
         if let Some(device_key) = cmd_parts.get(4) {
             match device_key.parse::<DeviceKey>() {
-                Ok(DeviceKey::Onboard) => self.handle_cmd_update_devices_onboard(cmd_parts).await,
-                Ok(DeviceKey::Version) => self.handle_cmd_update_devices_version(cmd_parts).await,
+                Ok(DeviceKey::Onboard) => {
+                    self.handle_action_update_devices_onboard(cmd_parts).await
+                }
+                Ok(DeviceKey::Version) => {
+                    self.handle_action_update_devices_version(cmd_parts).await
+                }
                 Ok(DeviceKey::TailscaleIp) => {
-                    self.handle_cmd_update_devices_tailscale_ip(cmd_parts).await
+                    self.handle_action_update_devices_tailscale_ip(cmd_parts)
+                        .await
                 }
                 Ok(DeviceKey::Temperature) => {
-                    self.handle_cmd_update_devices_temperature(cmd_parts).await
+                    self.handle_action_update_devices_temperature(cmd_parts)
+                        .await
                 }
                 Ok(DeviceKey::AppUptime) => {
-                    self.handle_cmd_update_devices_app_uptime(cmd_parts).await
+                    self.handle_action_update_devices_app_uptime(cmd_parts)
+                        .await
                 }
                 _ => {
                     self.warn(common::MsgTemplate::InvalidParameters.format(
@@ -376,7 +385,7 @@ impl Plugin {
     }
 
     // p infos update weather summary <...>
-    async fn handle_cmd_update_weather_summary(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_weather_summary(&mut self, cmd_parts: &[String]) {
         if let (Some(city_name), Some(time), Some(temperature), Some(weathercode)) = (
             cmd_parts.get(5),
             cmd_parts.get(6),
@@ -414,7 +423,7 @@ impl Plugin {
     }
 
     // p infos update weather daily <...>
-    async fn handle_cmd_update_weather_daily(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_weather_daily(&mut self, cmd_parts: &[String]) {
         if let (
             Some(city_name),
             Some(idx),
@@ -471,11 +480,13 @@ impl Plugin {
     }
 
     // p infos update weather <weather_key> <...>
-    async fn handle_cmd_update_weather(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update_weather(&mut self, cmd_parts: &[String]) {
         if let Some(weather_key) = cmd_parts.get(4) {
             match weather_key.parse::<WeatherKey>() {
-                Ok(WeatherKey::Summary) => self.handle_cmd_update_weather_summary(cmd_parts).await,
-                Ok(WeatherKey::Daily) => self.handle_cmd_update_weather_daily(cmd_parts).await,
+                Ok(WeatherKey::Summary) => {
+                    self.handle_action_update_weather_summary(cmd_parts).await
+                }
+                Ok(WeatherKey::Daily) => self.handle_action_update_weather_daily(cmd_parts).await,
                 _ => {
                     self.warn(common::MsgTemplate::InvalidParameters.format(
                         &format!("<weather_key> (`{weather_key}`)"),
@@ -496,11 +507,11 @@ impl Plugin {
     }
 
     // p infos update <info_key> <...>
-    async fn handle_cmd_update(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_update(&mut self, cmd_parts: &[String]) {
         if let Some(info_key) = cmd_parts.get(3) {
             match info_key.parse::<InfoKey>() {
-                Ok(InfoKey::Devices) => self.handle_cmd_update_devices(cmd_parts).await,
-                Ok(InfoKey::Weather) => self.handle_cmd_update_weather(cmd_parts).await,
+                Ok(InfoKey::Devices) => self.handle_action_update_devices(cmd_parts).await,
+                Ok(InfoKey::Weather) => self.handle_action_update_weather(cmd_parts).await,
                 _ => {
                     self.warn(common::MsgTemplate::InvalidParameters.format(
                         &format!("<info_key> (`{info_key}`)"),
@@ -520,38 +531,8 @@ impl Plugin {
         }
     }
 
-    // p infos key <key>
-    async fn handle_cmd_key(&mut self, cmd_parts: Vec<String>) {
-        if let Some(key) = cmd_parts.get(3) {
-            match key.parse::<msgs::Key>() {
-                Ok(msgs::Key::Left) => {
-                    if self.page_idx > 0 {
-                        self.page_idx -= 1;
-                    } else {
-                        self.page_idx = PAGES - 1;
-                    }
-                }
-                Ok(msgs::Key::Right) => {
-                    if self.page_idx + 1 < PAGES {
-                        self.page_idx += 1;
-                    } else {
-                        self.page_idx = 0;
-                    }
-                }
-                _ => (), // ignore other keys
-            }
-        } else {
-            self.warn(common::MsgTemplate::MissingParameters.format(
-                "<key>",
-                Action::Key.as_ref(),
-                &cmd_parts.join(" "),
-            ))
-            .await;
-        }
-    }
-
     // p infos add weather <city_name> <latitude> <longitude>
-    async fn handle_cmd_add_weather(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_add_weather(&mut self, cmd_parts: &[String]) {
         if let (Some(city_name), Some(latitude), Some(longitude)) =
             (cmd_parts.get(4), cmd_parts.get(5), cmd_parts.get(6))
         {
@@ -593,10 +574,10 @@ impl Plugin {
     }
 
     // p infos add <info_key> <...>
-    async fn handle_cmd_add(&mut self, cmd_parts: Vec<String>) {
+    async fn handle_action_add(&mut self, cmd_parts: &[String]) {
         if let Some(info_key) = cmd_parts.get(3) {
             match info_key.parse::<InfoKey>() {
-                Ok(InfoKey::Weather) => self.handle_cmd_add_weather(cmd_parts).await,
+                Ok(InfoKey::Weather) => self.handle_action_add_weather(cmd_parts).await,
                 _ => {
                     self.warn(common::MsgTemplate::InvalidParameters.format(
                         &format!("<info_key> (`{info_key}`)"),
@@ -615,45 +596,116 @@ impl Plugin {
             .await;
         }
     }
+
+    async fn handle_action_key_alt(&mut self, key: Key) {
+        match key {
+            Key::AltUp => {
+                if self.panel_info.y > 0 {
+                    self.panel_info.y -= 1;
+                }
+            }
+            Key::AltDown => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                self.panel_info.y += 1;
+                // }
+            }
+            Key::AltLeft => {
+                if self.panel_info.x > 0 {
+                    self.panel_info.x -= 1;
+                }
+            }
+            Key::AltRight => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                self.panel_info.x += 1;
+                // }
+            }
+            Key::AltW => {
+                if self.panel_info.h > 3 {
+                    self.panel_info.h -= 1;
+                }
+            }
+            Key::AltS => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                self.panel_info.h += 1;
+                // }
+            }
+            Key::AltA => {
+                if self.panel_info.w > 10 {
+                    self.panel_info.w -= 1;
+                }
+            }
+            Key::AltD => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                self.panel_info.w += 1;
+                // }
+            }
+            _ => {}
+        }
+
+        self.cmd(format!(
+            "{} {} {} {MODULE}",
+            consts::P,
+            plugins_main::MODULE,
+            Action::Redraw,
+        ))
+        .await;
+    }
+
+    // p infos key <key>
+    async fn handle_action_key(&mut self, cmd_parts: &[String]) {
+        if let Some(key) = cmd_parts.get(3) {
+            match key.parse::<Key>() {
+                Ok(Key::Left) => {
+                    if self.page_idx > 0 {
+                        self.page_idx -= 1;
+                    } else {
+                        self.page_idx = PAGES - 1;
+                    }
+                }
+                Ok(Key::Right) => {
+                    if self.page_idx + 1 < PAGES {
+                        self.page_idx += 1;
+                    } else {
+                        self.page_idx = 0;
+                    }
+                }
+
+                Ok(k @ Key::AltUp)
+                | Ok(k @ Key::AltDown)
+                | Ok(k @ Key::AltLeft)
+                | Ok(k @ Key::AltRight)
+                | Ok(k @ Key::AltW)
+                | Ok(k @ Key::AltS)
+                | Ok(k @ Key::AltA)
+                | Ok(k @ Key::AltD) => self.handle_action_key_alt(k).await,
+                _ => (),
+            }
+        }
+    }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err.clone()).await;
-                return;
-            }
-        };
+    fn panel_info(&self) -> &panel::PanelInfo {
+        &self.panel_info
+    }
 
-        // p infos help
-        // p infos show
-        // p infos gui <gui_panel>
-        // p infos key <key>
-        // p infos update <info_key> <...>
-        // p infos update devices onboard <name> <0|1>
-        // p infos update devices version <name> <version>
-        // p infos update devices tailscale_ip <name> <tailscale_ip>
-        // p infos update devices temperature <name> <temperature>
-        // p infos update devices app_uptime <name> <app_uptime>
-        // p infos update weather <weather_key> <...>
-        // p infos add <info_key> <...>
-        // p infos add weather <city_name> <latitude> <longitude>
+    async fn handle_action(&mut self, action: Action, cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Gui => self.handle_cmd_gui(cmd_parts).await,
-            Action::Key => self.handle_cmd_key(cmd_parts).await,
-            Action::Update => self.handle_cmd_update(cmd_parts).await,
-            Action::Add => self.handle_cmd_add(cmd_parts).await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Gui => self.handle_action_gui(cmd_parts).await,
+            Action::Key => self.handle_action_key(cmd_parts).await,
+            Action::Update => self.handle_action_update(cmd_parts).await,
+            Action::Add => self.handle_action_add(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
@@ -662,5 +714,66 @@ impl plugins_main::Plugin for Plugin {
 
         // update gui
         self.update().await;
+    }
+
+    fn draw(&mut self, frame: &mut Frame, active: bool) {
+        // Clear the panel area
+        let (panel_x, panel_y, panel_width, panel_height) = panel::caculate_position(
+            frame,
+            self.panel_info.x,
+            self.panel_info.y,
+            self.panel_info.w,
+            self.panel_info.h,
+        );
+
+        let panel_area =
+            panel::panel_rect(panel_x, panel_y, panel_width, panel_height, frame.area());
+        frame.render_widget(Clear, panel_area);
+
+        let sub_title = format!(
+            " - {}/{PAGES} - {}",
+            self.page_idx + 1,
+            self.sub_title[self.page_idx]
+        );
+
+        // Draw the panel block
+        let panel_block = Block::default()
+            .borders(Borders::ALL)
+            .title(format!("{MODULE} - {sub_title}"))
+            .padding(ratatui::widgets::Padding::new(0, 0, 0, 0))
+            .border_type(if active {
+                BorderType::Double
+            } else {
+                BorderType::Plain
+            })
+            .style(Style::default().fg(if active { Color::Cyan } else { Color::White }));
+        frame.render_widget(panel_block.clone(), panel_area);
+
+        // Draw the panel content
+        let area_height = panel_area.height;
+
+        let output = &self.output.lines().collect::<Vec<&str>>();
+
+        let scroll_offset = if output.len() as u16 > (area_height - 3) {
+            output.len() as u16 - (area_height - 3)
+        } else {
+            0
+        };
+
+        let lines: Vec<Line> = output
+            .iter()
+            .flat_map(|entry| {
+                entry
+                    .split('\n') // 處理內部的換行
+                    .map(|subline| Line::from(Span::raw(subline.to_string())))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+
+        let text = Paragraph::new(Text::from(lines))
+            .style(Style::default().fg(if active { Color::Cyan } else { Color::White }))
+            .scroll((scroll_offset, 0));
+
+        frame.render_widget(text, panel_block.inner(panel_area));
     }
 }

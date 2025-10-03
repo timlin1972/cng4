@@ -8,13 +8,12 @@ use walkdir::WalkDir;
 
 use crate::consts;
 use crate::messages::{self as msgs, Action, Msg};
+use crate::utils::common;
 
 const MODULE: &str = "yt_dlp";
 const BIN: &str = "yt-dlp";
 const ARG_VERSION: &str = "--version";
 const YT_DLP_CACHE: &str = "./yt_dlp_cache";
-const URL_PREFIX: usize = 5;
-const URL_SUFFIX: usize = 6;
 
 #[derive(Debug)]
 pub struct YtDlp {
@@ -76,7 +75,7 @@ impl YtDlp {
         msgs::info(&self.msg_tx, MODULE, &msg).await;
     }
 
-    pub async fn handle_cmd_show(&self) {
+    pub async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  available: {}", self.is_available))
             .await;
@@ -90,8 +89,11 @@ impl YtDlp {
     }
 
     pub async fn download(&mut self, url: &str) {
-        self.info(format!("Downloading from `{}`...", shorten(url)))
-            .await;
+        self.info(format!(
+            "Downloading from `{}`...",
+            common::shorten(url, 5, 6)
+        ))
+        .await;
 
         let url = url.to_string();
         let msg_tx = self.msg_tx.clone();
@@ -102,7 +104,7 @@ impl YtDlp {
                     msgs::info(
                         &msg_tx,
                         MODULE,
-                        &format!("Downloaded from `{}`", shorten(&url)),
+                        &format!("Downloaded from `{}`", common::shorten(&url, 5, 6)),
                     )
                     .await
                 }
@@ -116,25 +118,6 @@ impl YtDlp {
 //
 // Helper functions
 //
-
-fn shorten(s: &str) -> String {
-    let len = s.chars().count();
-
-    if len <= URL_PREFIX + URL_SUFFIX {
-        s.to_string()
-    } else {
-        let prefix: String = s.chars().take(URL_PREFIX).collect();
-        let suffix: String = s
-            .chars()
-            .rev()
-            .take(URL_SUFFIX)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-        format!("{prefix}...{suffix}")
-    }
-}
 
 fn remove_dir(remove_dir: &str) {
     let dir_to_remove = Path::new(remove_dir);
@@ -177,7 +160,7 @@ async fn download(url: &str, output_dir: &str) -> Result<()> {
             remove_dir(YT_DLP_CACHE);
             Err(anyhow::anyhow!(
                 "Failed to download from `{}`",
-                shorten(url)
+                common::shorten(url, 5, 6)
             ))
         }
         Err(_) => {

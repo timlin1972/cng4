@@ -1,16 +1,13 @@
 script_gui = """
 # Custom GUI script
 
-# for GUI mode
-p plugins insert panels
-
-# - gui
-p panels create command gui 0 0 80 3
-p plugins insert gui
+# - command
+#   - put it first
+p plugins insert command
+p command gui normal 0 0 80 3
 
 # - log
-p panels create log log 0 0 70 60
-p log gui log
+p log gui normal 0 0 70 60
 
 # - plugins
 p plugins insert system
@@ -18,9 +15,13 @@ p plugins insert devices
 
 # - mqtt
 p plugins insert mqtt
-p panels create mqtt mqtt 71 0 50 60
-p mqtt gui mqtt
+p mqtt gui normal 71 0 30 60
 p mqtt restart
+
+# - infos
+p plugins insert infos
+# p plugins panel create infos infos normal 0 61 100 40
+p infos gui normal 0 61 100 40
 
 # - weather
 p plugins insert weather
@@ -35,14 +36,15 @@ p weather add 西雅圖 47.6062 122.3321
 p weather add 清邁 18.7061 98.9817
 p weather add 拜縣 19.3583 98.4418
 
-# - infos
-p plugins insert infos
-p panels create infos infos 0 61 100 40
-p infos gui infos
-
 # - plugins
 p plugins insert web
 p plugins insert music
+
+# - editor
+p plugins insert editor
+p editor gui popup 10 10 80 80
+
+p plugins insert gui
 """
 
 script_cli = """

@@ -7,8 +7,8 @@ use tokio::sync::mpsc::Sender;
 
 use crate::consts;
 use crate::globals;
-use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::plugins_main;
+use crate::messages::{Action, Msg};
+use crate::plugins::plugins_main::{self, Plugin};
 use crate::utils::common;
 
 pub const MODULE: &str = "cfg";
@@ -21,11 +21,11 @@ struct Config {
 }
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let myself = Self { msg_tx };
 
@@ -33,14 +33,6 @@ impl Plugin {
         myself.init().await;
 
         Ok(myself)
-    }
-
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
     }
 
     async fn init(&self) {
@@ -58,7 +50,7 @@ impl Plugin {
         globals::set_server(&config.server);
     }
 
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!("  Script: {CFG_FILE}")).await;
         self.info(format!("  Name: {}", globals::get_sys_name()))
@@ -72,33 +64,25 @@ impl Plugin {
         .await;
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
     }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (_cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err).await;
-                return;
-            }
-        };
-
+    async fn handle_action(&mut self, action: Action, _cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

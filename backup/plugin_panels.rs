@@ -22,6 +22,7 @@ const MAX_OUTPUT_LEN: usize = 300;
 struct Panel {
     title: String,
     sub_title: String,
+    popup: bool,
     plugin_name: String,
     x: u16,
     y: u16,
@@ -37,6 +38,8 @@ pub struct Plugin {
     terminal: Option<DefaultTerminal>,
     panels: Vec<Panel>,
     active_panel: usize,
+    active_popup: Option<usize>,
+    popup_cursor: (u16, u16),
 }
 
 impl Plugin {
@@ -50,6 +53,8 @@ impl Plugin {
             terminal: None,
             panels: Vec::new(),
             active_panel: 0,
+            active_popup: None,
+            popup_cursor: (0, 0),
         };
 
         myself.info(consts::NEW.to_string()).await;
@@ -94,14 +99,14 @@ impl Plugin {
         self.info(format!("  Number of panels: {}", self.panels.len()))
             .await;
         self.info(format!(
-            "  {:<2} {:<12} {:<30} {:12}",
-            "ID", "Title", "Subtitle", "Plugin"
+            "  {:<2} {:<12} {:<30} {:<5} {:12}",
+            "ID", "Title", "Subtitle", "Popup", "Plugin"
         ))
         .await;
         for (idx, panel) in self.panels.iter().enumerate() {
             self.info(format!(
-                "  {:<2} {:<12} {:<30} {:12}",
-                idx, panel.title, panel.sub_title, panel.plugin_name
+                "  {:<2} {:<12} {:<30} {:<5} {:12}",
+                idx, panel.title, panel.sub_title, panel.popup, panel.plugin_name
             ))
             .await;
         }
@@ -114,16 +119,28 @@ impl Plugin {
     }
 
     fn draw(&mut self, frame: &mut Frame) {
+        // for normal inactive panels
         for (idx, panel) in self.panels.iter_mut().enumerate() {
-            if idx != self.active_panel {
-                draw_panel(panel, frame, false);
+            if !panel.popup && idx != self.active_panel {
+                draw_panel(panel, frame, false, self.active_popup, self.popup_cursor);
             }
         }
 
+        // for normal active panel
         for (idx, panel) in self.panels.iter_mut().enumerate() {
-            if idx == self.active_panel {
-                draw_panel(panel, frame, true);
+            if !panel.popup && idx == self.active_panel {
+                draw_panel(panel, frame, true, self.active_popup, self.popup_cursor);
                 break;
+            }
+        }
+
+        // for popup panels
+        if let Some(active_popup) = self.active_popup {
+            for (idx, panel) in self.panels.iter_mut().enumerate() {
+                if panel.popup && idx == active_popup {
+                    draw_panel(panel, frame, true, self.active_popup, self.popup_cursor);
+                    break;
+                }
             }
         }
     }
@@ -131,17 +148,27 @@ impl Plugin {
     async fn handle_cmd_create(&mut self, cmd_parts: Vec<String>) {
         let mut terminal = self.terminal.take().unwrap();
 
-        if let (Some(title), Some(plugin_name), Some(x), Some(y), Some(width), Some(height)) = (
+        if let (
+            Some(title),
+            Some(plugin_name),
+            Some(popup),
+            Some(x),
+            Some(y),
+            Some(width),
+            Some(height),
+        ) = (
             cmd_parts.get(3),
             cmd_parts.get(4),
             cmd_parts.get(5),
             cmd_parts.get(6),
             cmd_parts.get(7),
             cmd_parts.get(8),
+            cmd_parts.get(9),
         ) {
             let panel = Panel {
                 title: title.to_string(),
                 sub_title: String::new(),
+                popup: popup == "popup",
                 plugin_name: plugin_name.to_string(),
                 x: x.parse::<u16>()
                     .unwrap_or_else(|_| panic!("Failed to parse x (`{x}`)")),
@@ -214,8 +241,10 @@ impl Plugin {
     async fn handle_cmd_key_tab(&mut self) {
         let mut terminal = self.terminal.take().unwrap();
 
-        self.active_panel = (self.active_panel + 1) % self.panels.len();
-        let _ = terminal.draw(|frame| self.draw(frame));
+        if self.active_popup.is_none() {
+            self.active_panel = (self.active_panel + 1) % self.panels.len();
+            let _ = terminal.draw(|frame| self.draw(frame));
+        }
 
         self.terminal = Some(terminal);
     }
@@ -296,6 +325,19 @@ impl Plugin {
         self.terminal = Some(terminal);
     }
 
+    async fn handle_cmd_key_control_x(&mut self, key: Key) {
+        let mut terminal = self.terminal.take().unwrap();
+
+        if self.active_popup.is_some() {
+            if key == Key::ControlX {
+                self.active_popup = None;
+            }
+        }
+
+        let _ = terminal.draw(|frame| self.draw(frame));
+        self.terminal = Some(terminal);
+    }
+
     async fn handle_cmd_key(&mut self, cmd_parts: Vec<String>) {
         if let Some(key) = cmd_parts.get(3) {
             match key.parse::<Key>() {
@@ -312,6 +354,7 @@ impl Plugin {
                 | Ok(k @ Key::AltDown)
                 | Ok(k @ Key::AltLeft)
                 | Ok(k @ Key::AltRight) => self.handle_cmd_key_alt(k).await,
+                Ok(k @ Key::ControlX) => self.handle_cmd_key_control_x(k).await,
                 _ => (),
             }
         }
@@ -324,6 +367,23 @@ impl Plugin {
         if let (Some(panel_title), Some(sub_title)) = (cmd_parts.get(3), cmd_parts.get(4)) {
             if let Some(panel) = self.panels.iter_mut().find(|p| p.title == *panel_title) {
                 panel.sub_title = sub_title.to_string();
+            }
+        }
+
+        let _ = terminal.draw(|frame| self.draw(frame));
+        self.terminal = Some(terminal);
+    }
+
+    async fn handle_cmd_popup(&mut self, cmd_parts: Vec<String>) {
+        let mut terminal = self.terminal.take().unwrap();
+
+        #[allow(clippy::collapsible_if)]
+        if let Some(panel_title) = cmd_parts.get(3) {
+            for (idx, panel) in self.panels.iter_mut().enumerate() {
+                if panel.title == *panel_title && panel.popup {
+                    self.active_popup = Some(idx);
+                    break;
+                }
             }
         }
 
@@ -357,6 +417,7 @@ impl plugins_main::Plugin for Plugin {
             Action::OutputUpdate => self.handle_cmd_output_update(cmd_parts).await,
             Action::Key => self.handle_cmd_key(cmd_parts).await,
             Action::SubTitle => self.handle_cmd_sub_title(cmd_parts).await,
+            Action::Popup => self.handle_cmd_popup(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
@@ -369,7 +430,13 @@ impl plugins_main::Plugin for Plugin {
 // helper functions
 //
 
-fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
+fn draw_panel(
+    panel: &mut Panel,
+    frame: &mut Frame,
+    active: bool,
+    active_popup: Option<usize>,
+    popup_cursor: (u16, u16),
+) {
     let width = frame.area().width;
     let height = frame.area().height - 3;
 
@@ -441,11 +508,22 @@ fn draw_panel(panel: &mut Panel, frame: &mut Frame, active: bool) {
 
     frame.render_widget(text, panel_block.inner(panel_area));
 
-    // cursor is only for panel command
+    // cursor for panel command
     if panel.title == consts::COMMAND && !panel.output.is_empty() {
         frame.set_cursor_position(Position::new(
             panel_x + panel.output[0].len() as u16 + 1,
             panel_y + 1,
+        ));
+    }
+
+    // cursor for popup panel
+    if active_popup.is_some() {
+        let mut stdout = std::io::stdout();
+        execute!(stdout, SetCursorStyle::DefaultUserShape).unwrap();
+
+        frame.set_cursor_position(Position::new(
+            panel_x + popup_cursor.0 + 1,
+            panel_y + popup_cursor.1 + 1,
         ));
     }
 }

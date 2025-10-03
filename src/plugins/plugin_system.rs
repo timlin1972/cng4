@@ -4,8 +4,11 @@ use tokio::sync::mpsc::Sender;
 use tokio::time::Duration;
 
 use crate::consts;
-use crate::messages::{self as msgs, Action, Data, DeviceKey, Msg};
-use crate::plugins::{plugin_mqtt, plugins_main};
+use crate::messages::{self as msgs, Action, DeviceKey, Msg};
+use crate::plugins::{
+    plugin_mqtt,
+    plugins_main::{self, Plugin},
+};
 use crate::utils::{common, time};
 
 pub const MODULE: &str = "system";
@@ -34,12 +37,12 @@ impl SystemInfo {
 }
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     system_info: SystemInfo,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let myself = Self {
             msg_tx: msg_tx.clone(),
@@ -69,19 +72,7 @@ impl Plugin {
         Ok(myself)
     }
 
-    async fn cmd(&self, msg: String) {
-        msgs::cmd(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
         self.info(format!(
             "  Tailscale IP: {}",
@@ -97,7 +88,7 @@ impl Plugin {
         .await;
     }
 
-    async fn handle_cmd_update(&mut self) {
+    async fn handle_action_update(&mut self) {
         self.system_info.update();
 
         // onboard
@@ -156,35 +147,27 @@ impl Plugin {
         .await;
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
         self.info(format!("  {}", Action::Update)).await;
     }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (_cmd_parts, action) = match common::get_cmd_action(&cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err).await;
-                return;
-            }
-        };
-
+    async fn handle_action(&mut self, action: Action, _cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
-            Action::Update => self.handle_cmd_update().await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
+            Action::Update => self.handle_action_update().await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

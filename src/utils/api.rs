@@ -81,7 +81,7 @@ pub struct UploadRequest {
 
 impl fmt::Display for UploadRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.data.filename)
+        write!(f, "{}", common::shorten(&self.data.filename, 20, 0))
     }
 }
 

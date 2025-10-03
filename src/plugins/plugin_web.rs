@@ -1,20 +1,14 @@
-use std::fs;
 use std::path::Path;
-use std::path::PathBuf;
 
 use actix_web::{App, HttpResponse, HttpServer, Responder, get, post, web};
 use anyhow::Result;
 use async_trait::async_trait;
-use base64::Engine as _;
-use base64::engine::general_purpose;
-use chrono::{DateTime, Utc};
-use filetime::FileTime;
 use tokio::sync::mpsc::Sender;
 
 use crate::consts;
-use crate::messages::{self as msgs, Action, Data, Msg};
-use crate::plugins::plugins_main;
-use crate::utils::{api, common};
+use crate::messages::{self as msgs, Action, Msg};
+use crate::plugins::plugins_main::{self, Plugin};
+use crate::utils::{api, common, nas};
 
 pub const MODULE: &str = "web";
 const MAX_SIZE: usize = 100 * 1024 * 1024; // 100MB
@@ -73,7 +67,7 @@ async fn upload(
     let content = &data.data.content;
     let mtime = &data.data.mtime;
 
-    if let Err(e) = write_file(filename, content, mtime).await {
+    if let Err(e) = nas::write_file(filename, content, mtime).await {
         msgs_warn(&msg_tx, &format!("Failed to write `{filename}`: {e}")).await;
         return HttpResponse::InternalServerError().body("Failed to write `{filename}`: {e}");
     }
@@ -92,11 +86,11 @@ async fn log(data: web::Json<api::LogRequest>, msg_tx: web::Data<Sender<Msg>>) -
 }
 
 #[derive(Debug)]
-pub struct Plugin {
+pub struct PluginUnit {
     msg_tx: Sender<Msg>,
 }
 
-impl Plugin {
+impl PluginUnit {
     pub async fn new(msg_tx: Sender<Msg>) -> Result<Self> {
         let mut myself = Self { msg_tx };
 
@@ -104,14 +98,6 @@ impl Plugin {
         myself.init().await;
 
         Ok(myself)
-    }
-
-    async fn info(&self, msg: String) {
-        msgs::info(&self.msg_tx, MODULE, &msg).await;
-    }
-
-    async fn warn(&self, msg: String) {
-        msgs::warn(&self.msg_tx, MODULE, &msg).await;
     }
 
     async fn init(&mut self) {
@@ -145,68 +131,33 @@ impl Plugin {
         });
     }
 
-    async fn handle_cmd_show(&self) {
+    async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
     }
 
-    async fn handle_cmd_help(&self) {
+    async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-        self.info(format!("  {}", Action::Help)).await;
-        self.info(format!("  {}", Action::Show)).await;
     }
 }
 
 #[async_trait]
-impl plugins_main::Plugin for Plugin {
+impl plugins_main::Plugin for PluginUnit {
     fn name(&self) -> &str {
         MODULE
     }
 
-    async fn handle_cmd(&mut self, msg: &Msg) {
-        let Data::Cmd(data_cmd) = &msg.data;
+    fn msg_tx(&self) -> &Sender<Msg> {
+        &self.msg_tx
+    }
 
-        let (_cmd_parts, action) = match common::get_cmd_action(&data_cmd.cmd) {
-            Ok(action) => action,
-            Err(err) => {
-                self.warn(err).await;
-                return;
-            }
-        };
-
+    async fn handle_action(&mut self, action: Action, _cmd_parts: &[String], _msg: &Msg) {
         match action {
-            Action::Help => self.handle_cmd_help().await,
-            Action::Show => self.handle_cmd_show().await,
+            Action::Help => self.handle_action_help().await,
+            Action::Show => self.handle_action_show().await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await
             }
         }
     }
-}
-
-async fn write_file(filename: &str, content: &str, mtime: &str) -> anyhow::Result<()> {
-    let file_path = PathBuf::from(filename);
-
-    // if the content is the same, return
-    if file_path.exists() {
-        let bytes = fs::read(&file_path)?;
-        let encoded = general_purpose::STANDARD.encode(&bytes);
-        if encoded == content {
-            return Ok(());
-        }
-    }
-
-    let decoded = general_purpose::STANDARD.decode(content)?;
-    let mtime: DateTime<Utc> = DateTime::parse_from_rfc3339(mtime)?.with_timezone(&Utc);
-
-    if let Some(parent) = file_path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    fs::write(&file_path, decoded)?;
-
-    let file_time = FileTime::from_unix_time(mtime.timestamp(), 0);
-    filetime::set_file_mtime(&file_path, file_time)?;
-
-    Ok(())
 }
