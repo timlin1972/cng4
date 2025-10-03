@@ -90,6 +90,13 @@ impl Plugin {
         self.info("    url: the URL to download".to_string()).await;
         self.info(format!("  {}", Action::Upload)).await;
         self.info(format!("  {}", Action::Remove)).await;
+        self.info("  Normal procedure:".to_string()).await;
+        self.info("    1. Download music files from URL to NAS_MUSIC_FOLDER".to_string())
+            .await;
+        self.info("    2. Upload music files from NAS_MUSIC_FOLDER to server".to_string())
+            .await;
+        self.info("    3. Remove music files from NAS_MUSIC_FOLDER".to_string())
+            .await;
     }
 
     async fn handle_cmd_upload(&self) {
@@ -107,41 +114,44 @@ impl Plugin {
         let target_dir = Path::new(consts::NAS_UPLOAD_FOLDER);
 
         // for all files in consts::NAS_MUSIC_FOLDER to send upload request
-        for entry in WalkDir::new(source_dir)
-            .into_iter()
-            .filter_map(Result::ok)
-            .filter(|e| e.file_type().is_file())
-        {
-            let source_path = PathBuf::from(entry.path());
-            let source_path_no_prefix = source_path.strip_prefix(source_dir).unwrap();
-            let bytes = fs::read(&source_path).unwrap();
-            let target_path = target_dir.join(source_path_no_prefix);
+        let msg_tx_clone = self.msg_tx.clone();
+        tokio::task::spawn(async move {
+            for entry in WalkDir::new(source_dir)
+                .into_iter()
+                .filter_map(Result::ok)
+                .filter(|e| e.file_type().is_file())
+            {
+                let source_path = PathBuf::from(entry.path());
+                let source_path_no_prefix = source_path.strip_prefix(source_dir).unwrap();
+                let bytes = fs::read(&source_path).unwrap();
+                let target_path = target_dir.join(source_path_no_prefix);
 
-            let encoded = general_purpose::STANDARD.encode(&bytes);
-            let mtime = fs::metadata(&source_path)
-                .and_then(|meta| meta.modified())
-                .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
-                .unwrap_or_else(|_| Utc::now().to_rfc3339());
+                let encoded = general_purpose::STANDARD.encode(&bytes);
+                let mtime = fs::metadata(&source_path)
+                    .and_then(|meta| meta.modified())
+                    .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
+                    .unwrap_or_else(|_| Utc::now().to_rfc3339());
 
-            let msg_tx_clone = self.msg_tx.clone();
-            let target_path = target_path.clone();
-            let server_ip = server_ip.clone();
-            tokio::task::spawn(async move {
-                api::post_upload(
-                    &msg_tx_clone,
-                    MODULE,
-                    server_ip.as_str(),
-                    &api::UploadRequest {
-                        data: api::UploadData {
-                            filename: target_path.to_string_lossy().to_string(),
-                            content: encoded,
-                            mtime,
+                let target_path = target_path.clone();
+                let server_ip = server_ip.clone();
+                let msg_tx_clone = msg_tx_clone.clone();
+                tokio::task::spawn(async move {
+                    api::post_upload(
+                        &msg_tx_clone,
+                        MODULE,
+                        server_ip.as_str(),
+                        &api::UploadRequest {
+                            data: api::UploadData {
+                                filename: target_path.to_string_lossy().to_string(),
+                                content: encoded,
+                                mtime,
+                            },
                         },
-                    },
-                )
-                .await;
-            });
-        }
+                    )
+                    .await;
+                });
+            }
+        });
     }
 
     async fn handle_cmd_remove(&self) {

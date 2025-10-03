@@ -5,6 +5,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::consts;
 use crate::messages::{self as msgs, Action, Msg};
+use crate::utils::{self, common};
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct CmdRequest {
@@ -17,7 +18,15 @@ impl fmt::Display for CmdRequest {
     }
 }
 
-pub async fn post_cmd(msg_tx: &Sender<Msg>, module: &str, ip: &str, cmd: &CmdRequest) {
+pub async fn post_cmd(
+    msg_tx: &Sender<Msg>,
+    device_name: &str,
+    module: &str,
+    ip: &str,
+    cmd: &CmdRequest,
+) {
+    msgs::info(msg_tx, module, &format!("-> `{device_name}`: `{cmd}`")).await;
+
     let client = reqwest::Client::new();
     let ret = client
         .post(format!("http://{ip}:{}/{}", consts::WEB_PORT, Action::Cmd))
@@ -32,7 +41,7 @@ pub async fn post_cmd(msg_tx: &Sender<Msg>, module: &str, ip: &str, cmd: &CmdReq
                 msgs::info(
                     msg_tx,
                     module,
-                    &format!("Response from {ip} for `{cmd}`: `{text}`"),
+                    &format!("<- `{device_name}`: `{cmd}`: `{text}`"),
                 )
                 .await;
             } else {
@@ -120,4 +129,48 @@ pub async fn post_upload(msg_tx: &Sender<Msg>, module: &str, ip: &str, upload: &
             .await;
         }
     }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct LogData {
+    pub name: String,
+    pub ts: u64,
+    pub plugin: String,
+    pub level: String,
+    pub msg: String,
+}
+
+impl fmt::Display for LogData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:<12} {} {:>10}: [{}] {}",
+            self.name,
+            utils::time::ts_str(self.ts),
+            self.plugin,
+            common::level_str(&self.level),
+            self.msg
+        )
+    }
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct LogRequest {
+    pub data: LogData,
+}
+
+impl fmt::Display for LogRequest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.data.msg)
+    }
+}
+
+// Note: do not pring anything else it will ping-pong the API
+pub async fn post_log(ip: &str, log: &LogRequest) {
+    let client = reqwest::Client::new();
+    let _ = client
+        .post(format!("http://{ip}:{}/{}", consts::WEB_PORT, Action::Log))
+        .json(log)
+        .send()
+        .await;
 }

@@ -300,12 +300,9 @@ impl Plugin {
                 .find(|device| device.name == *device_name)
             {
                 if let Some(ip) = &device.tailscale_ip {
-                    self.info(format!(
-                        "Sending command to device `{device_name}` at {ip}: `{cmd}`"
-                    ))
-                    .await;
                     api::post_cmd(
                         &self.msg_tx,
+                        device_name,
                         MODULE,
                         ip,
                         &api::CmdRequest { cmd: cmd.clone() },

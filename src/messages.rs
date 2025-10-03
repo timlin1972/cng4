@@ -119,6 +119,8 @@ pub enum Action {
     Upload,
     #[strum(serialize = "remove")]
     Remove,
+    #[strum(serialize = "dest")]
+    Dest,
 }
 
 #[derive(Debug, Clone)]

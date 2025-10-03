@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use sysinfo::Networks;
 use tokio::sync::mpsc::Sender;
 use tokio::time::Duration;
 
@@ -23,13 +22,13 @@ impl SystemInfo {
     fn new() -> Self {
         Self {
             ts_start_uptime: time::uptime(),
-            tailscale_ip: get_tailscale_ip(),
+            tailscale_ip: common::get_tailscale_ip(),
             temperature: get_temperature(),
         }
     }
 
     fn update(&mut self) {
-        self.tailscale_ip = get_tailscale_ip();
+        self.tailscale_ip = common::get_tailscale_ip();
         self.temperature = get_temperature();
     }
 }
@@ -86,7 +85,7 @@ impl Plugin {
         self.info(Action::Show.to_string()).await;
         self.info(format!(
             "  Tailscale IP: {}",
-            get_tailscale_ip_str(&self.system_info.tailscale_ip)
+            common::get_tailscale_ip_str(&self.system_info.tailscale_ip)
         ))
         .await;
         let uptime_str = time::uptime_str(time::uptime() - self.system_info.ts_start_uptime);
@@ -129,7 +128,7 @@ impl Plugin {
             plugin_mqtt::MODULE,
             Action::Publish,
             DeviceKey::TailscaleIp,
-            get_tailscale_ip_str(&self.system_info.tailscale_ip)
+            common::get_tailscale_ip_str(&self.system_info.tailscale_ip)
         ))
         .await;
 
@@ -197,43 +196,6 @@ impl plugins_main::Plugin for Plugin {
 //
 // Helpers
 //
-
-const TAILSCALE_INTERFACE: &str = "tailscale";
-const TAILSCALE_INTERFACE_MAC: &str = "utun";
-
-fn get_tailscale_ip() -> Option<String> {
-    let networks = Networks::new_with_refreshed_list();
-    for (interface_name, network) in &networks {
-        if interface_name.starts_with(TAILSCALE_INTERFACE) {
-            for ipnetwork in network.ip_networks().iter() {
-                // if ipv4
-                if ipnetwork.addr.is_ipv4() {
-                    return Some(ipnetwork.addr.to_string());
-                }
-            }
-        }
-        if interface_name.starts_with(TAILSCALE_INTERFACE_MAC) {
-            for ipnetwork in network.ip_networks().iter() {
-                // if ipv4
-                if let std::net::IpAddr::V4(ip) = ipnetwork.addr {
-                    // if the first 1 byte is 100, it's a tailscale ip
-                    if ip.octets()[0] == 100 {
-                        return Some(ipnetwork.addr.to_string());
-                    }
-                }
-            }
-        }
-    }
-
-    None
-}
-
-fn get_tailscale_ip_str(tailscale_ip: &Option<String>) -> String {
-    match tailscale_ip {
-        Some(ip) => ip.clone(),
-        None => consts::NA.to_string(),
-    }
-}
 
 fn get_temperature() -> Option<f32> {
     let components = sysinfo::Components::new_with_refreshed_list();

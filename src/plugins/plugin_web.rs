@@ -40,6 +40,7 @@ async fn hello(msg_tx: web::Data<Sender<Msg>>) -> impl Responder {
 #[post("/cmd")]
 async fn cmd(data: web::Json<api::CmdRequest>, msg_tx: web::Data<Sender<Msg>>) -> impl Responder {
     let data_cmd = &data.cmd;
+
     msgs_info(&msg_tx, &format!("API: POST /cmd: `{data_cmd}`")).await;
     msgs_cmd(&msg_tx, data_cmd).await;
 
@@ -78,6 +79,14 @@ async fn upload(
     }
 
     msgs_info(&msg_tx, &format!("API: POST /upload: `{filename}` done")).await;
+
+    HttpResponse::Ok().finish()
+}
+
+#[post("/log")]
+async fn log(data: web::Json<api::LogRequest>, msg_tx: web::Data<Sender<Msg>>) -> impl Responder {
+    let data_log = &data.data;
+    msgs_info(&msg_tx, &format!("{data_log}")).await;
 
     HttpResponse::Ok().finish()
 }
@@ -127,6 +136,7 @@ impl Plugin {
                     .service(hello)
                     .service(cmd)
                     .service(upload)
+                    .service(log)
             })
             .bind((consts::WEB_IP, consts::WEB_PORT))
             .unwrap()

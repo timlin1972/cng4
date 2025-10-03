@@ -5,9 +5,10 @@ use tokio::sync::mpsc::Sender;
 
 use crate::arguments::Mode;
 use crate::consts;
+use crate::globals;
 use crate::messages::{self as msgs, Action, Data, Msg};
 use crate::plugins::{plugin_panels, plugins_main};
-use crate::utils::{common, time};
+use crate::utils::{api, common, time};
 
 pub const MODULE: &str = "log";
 
@@ -16,6 +17,7 @@ pub struct Plugin {
     msg_tx: Sender<Msg>,
     mode: Mode,
     gui_panel: Option<String>,
+    dest: Option<String>,
 }
 
 impl Plugin {
@@ -24,6 +26,7 @@ impl Plugin {
             msg_tx,
             mode,
             gui_panel: None,
+            dest: None,
         };
 
         myself.info(consts::NEW.to_string()).await;
@@ -45,20 +48,41 @@ impl Plugin {
 
     async fn handle_cmd_log(&self, ts: u64, plugin: &str, cmd_parts: Vec<String>) {
         if let (Some(level), Some(msg)) = (cmd_parts.get(3), cmd_parts.get(4)) {
+            if let Some(dest) = &self.dest {
+                api::post_log(
+                    dest,
+                    &api::LogRequest {
+                        data: api::LogData {
+                            name: globals::get_sys_name(),
+                            ts,
+                            level: level.to_string(),
+                            plugin: plugin.to_string(),
+                            msg: msg.to_string(),
+                        },
+                    },
+                )
+                .await;
+            }
+
             if self.mode == Mode::Gui && self.gui_panel.is_some() {
                 self.cmd(format!(
-                    "{} {} {} {} '{} {plugin:>10}: [{level}] {msg}'",
+                    "{} {} {} {} '{} {plugin:>10}: [{}] {msg}'",
                     consts::P,
                     plugin_panels::MODULE,
                     Action::OutputPush,
                     self.gui_panel.as_ref().unwrap(),
-                    time::ts_str(ts)
+                    time::ts_str(ts),
+                    common::level_str(level)
                 ))
                 .await;
                 return;
             }
 
-            let msg = format!("{} {plugin:>10}: [{level}] {msg}", time::ts_str(ts));
+            let msg = format!(
+                "{} {plugin:>10}: [{}] {msg}",
+                time::ts_str(ts),
+                common::level_str(level)
+            );
             let msg = match level.to_lowercase().as_str() {
                 "info" => msg.normal(),
                 "warn" => msg.yellow(),
@@ -77,6 +101,7 @@ impl Plugin {
         self.info(format!("  Mode: {}", self.mode)).await;
         self.info(format!("  Gui panel: {:?}", self.gui_panel))
             .await;
+        self.info(format!("  Dest: {:?}", self.dest)).await;
     }
 
     async fn handle_cmd_help(&self) {
@@ -87,6 +112,12 @@ impl Plugin {
             .await;
         self.info("    level: INFO, WARN, ERROR".to_string()).await;
         self.info("    message: the log message".to_string()).await;
+        self.info(format!("  {} <gui_panel>", Action::Gui)).await;
+        self.info("    gui_panel: the GUI panel to send log messages to".to_string())
+            .await;
+        self.info(format!("  {} <dest>", Action::Dest)).await;
+        self.info("    dest: the destination IP to send log messages to".to_string())
+            .await;
     }
 
     async fn handle_cmd_gui(&mut self, cmd_parts: Vec<String>) {
@@ -99,6 +130,14 @@ impl Plugin {
                 &cmd_parts.join(" "),
             ))
             .await;
+        }
+    }
+
+    async fn handle_cmd_dest(&mut self, cmd_parts: Vec<String>) {
+        if let Some(dest) = cmd_parts.get(3) {
+            self.dest = Some(dest.to_string());
+        } else {
+            self.dest = None;
         }
     }
 }
@@ -125,6 +164,7 @@ impl plugins_main::Plugin for Plugin {
             Action::Show => self.handle_cmd_show().await,
             Action::Log => self.handle_cmd_log(msg.ts, &msg.plugin, cmd_parts).await,
             Action::Gui => self.handle_cmd_gui(cmd_parts).await,
+            Action::Dest => self.handle_cmd_dest(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

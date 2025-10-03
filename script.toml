@@ -9,7 +9,7 @@ p panels create command gui 0 0 80 3
 p plugins insert gui
 
 # - log
-p panels create log log 0 0 50 60
+p panels create log log 0 0 70 60
 p log gui log
 
 # - plugins
@@ -18,7 +18,7 @@ p plugins insert devices
 
 # - mqtt
 p plugins insert mqtt
-p panels create mqtt mqtt 51 0 50 60
+p panels create mqtt mqtt 71 0 50 60
 p mqtt gui mqtt
 p mqtt restart
 
