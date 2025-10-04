@@ -43,11 +43,120 @@ pub trait Plugin {
         msgs::cmd(self.msg_tx(), self.name(), &msg).await;
     }
 
+    async fn handle_action_gui(
+        &mut self,
+        cmd_parts: &[String],
+    ) -> anyhow::Result<panel::PanelInfo> {
+        if let (Some(panel_type), Some(x), Some(y), Some(w), Some(h)) = (
+            cmd_parts.get(3),
+            cmd_parts.get(4),
+            cmd_parts.get(5),
+            cmd_parts.get(6),
+            cmd_parts.get(7),
+        ) {
+            msgs::cmd(
+                self.msg_tx(),
+                self.name(),
+                &format!(
+                    "{} {} {} {}",
+                    consts::P,
+                    MODULE,
+                    Action::InsertPanel,
+                    self.name()
+                ),
+            )
+            .await;
+
+            Ok(panel::PanelInfo {
+                panel_type: panel_type.parse::<panel::PanelType>().unwrap(),
+                x: x.parse::<u16>().unwrap(),
+                y: y.parse::<u16>().unwrap(),
+                w: w.parse::<u16>().unwrap(),
+                h: h.parse::<u16>().unwrap(),
+            })
+        } else {
+            msgs::warn(
+                self.msg_tx(),
+                self.name(),
+                &common::MsgTemplate::MissingParameters.format(
+                    "<panel_type> <x> <y> <width> <height>",
+                    Action::Gui.as_ref(),
+                    &cmd_parts.join(" "),
+                ),
+            )
+            .await;
+
+            Err(anyhow::anyhow!("Missing parameters"))
+        }
+    }
+
     async fn handle_action(&mut self, _action: Action, _cmd_parts: &[String], _msg: &Msg) {
         panic!(
             "`handle_action` is not implemented for plugin: `{}`",
             self.name()
         )
+    }
+
+    async fn handle_action_key_position(
+        &mut self,
+        key: Key,
+        x: u16,
+        y: u16,
+        w: u16,
+        h: u16,
+    ) -> (u16, u16, u16, u16) {
+        let mut new_x = x;
+        let mut new_y = y;
+        let mut new_w = w;
+        let mut new_h = h;
+        match key {
+            Key::AltUp => {
+                new_y = new_y.saturating_sub(1);
+            }
+            Key::AltDown => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                new_y += 1;
+                // }
+            }
+            Key::AltLeft => {
+                new_x = new_x.saturating_sub(1);
+            }
+            Key::AltRight => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                new_x += 1;
+                // }
+            }
+            Key::AltW => {
+                if new_h > 3 {
+                    new_h -= 1;
+                }
+            }
+            Key::AltS => {
+                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
+                new_h += 1;
+                // }
+            }
+            Key::AltA => {
+                if new_w > 10 {
+                    new_w -= 1;
+                }
+            }
+            Key::AltD => {
+                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
+                new_w += 1;
+                // }
+            }
+            _ => {}
+        }
+
+        msgs::cmd(
+            self.msg_tx(),
+            self.name(),
+            &format!("{} {MODULE} {}", consts::P, Action::Redraw,),
+        )
+        .await;
+
+        (new_x, new_y, new_w, new_h)
     }
 
     fn draw(&mut self, _frame: &mut Frame, _active: bool) {
@@ -229,6 +338,21 @@ impl Plugins {
         let active_popup = self.active_popup;
 
         for (idx, panel) in panels.iter().enumerate() {
+            if idx == active_panel {
+                continue;
+            }
+            #[allow(clippy::collapsible_if)]
+            if let Some(plugin) = self.get_plugin_mut(panel) {
+                if plugin.panel_info().panel_type == panel::PanelType::Normal {
+                    plugin.draw(frame, active_popup.is_none() && idx == active_panel);
+                }
+            }
+        }
+
+        for (idx, panel) in panels.iter().enumerate() {
+            if idx != active_panel {
+                continue;
+            }
             #[allow(clippy::collapsible_if)]
             if let Some(plugin) = self.get_plugin_mut(panel) {
                 if plugin.panel_info().panel_type == panel::PanelType::Normal {
@@ -289,6 +413,16 @@ impl Plugins {
     async fn handle_action_key_tab(&mut self) {
         if self.active_popup.is_none() {
             self.active_panel = (self.active_panel + 1) % self.panels.len();
+            loop {
+                let panel = &self.panels[self.active_panel];
+                if let Some(plugin) = self.get_plugin(panel) {
+                    if plugin.panel_info().panel_type == panel::PanelType::Popup {
+                        self.active_panel = (self.active_panel + 1) % self.panels.len();
+                        continue;
+                    }
+                    break;
+                }
+            }
         }
 
         self.redraw();
@@ -317,6 +451,8 @@ impl Plugins {
                 | Ok(k @ Key::Down)
                 | Ok(k @ Key::Left)
                 | Ok(k @ Key::Right)
+                | Ok(k @ Key::Home)
+                | Ok(k @ Key::End)
                 | Ok(k @ Key::AltC)
                 | Ok(k @ Key::AltUp)
                 | Ok(k @ Key::AltDown)
@@ -460,5 +596,10 @@ impl Plugins {
 
     pub fn get_plugin_mut(&mut self, name: &str) -> Option<&mut Box<dyn Plugin + Send + Sync>> {
         self.plugins.iter_mut().find(|p| p.name() == name)
+    }
+
+    #[allow(clippy::borrowed_box)]
+    pub fn get_plugin(&self, name: &str) -> Option<&Box<dyn Plugin + Send + Sync>> {
+        self.plugins.iter().find(|p| p.name() == name)
     }
 }

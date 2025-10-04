@@ -10,5 +10,6 @@ pub const NEW: &str = "new";
 pub const P: &str = "p";
 pub const Q: &str = "q";
 pub const QUIT: &str = "quit";
+pub const SERVER_IP_NOT_SET: &str = "Server IP is not set";
 pub const WEB_IP: &str = "0.0.0.0";
 pub const WEB_PORT: u16 = 9759;

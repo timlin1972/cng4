@@ -205,6 +205,8 @@ async fn handle_keycode(
         KeyCode::Down => handle_keycode_key(msg_tx, Key::Down).await,
         KeyCode::Left => handle_keycode_key(msg_tx, Key::Left).await,
         KeyCode::Right => handle_keycode_key(msg_tx, Key::Right).await,
+        KeyCode::Home => handle_keycode_key(msg_tx, Key::Home).await,
+        KeyCode::End => handle_keycode_key(msg_tx, Key::End).await,
         _ => {}
     }
 }

@@ -81,6 +81,10 @@ pub enum Key {
     ControlX,
     #[strum(serialize = "ctrl_s")]
     ControlS,
+    #[strum(serialize = "home")]
+    Home,
+    #[strum(serialize = "end")]
+    End,
 }
 
 #[derive(EnumString, AsRefStr, Display, PartialEq, Clone, Debug)]
@@ -129,6 +133,8 @@ pub enum Action {
     InsertPanel,
     #[strum(serialize = "redraw")]
     Redraw,
+    #[strum(serialize = "sync")]
+    Sync,
 }
 
 #[derive(Debug, Clone)]
