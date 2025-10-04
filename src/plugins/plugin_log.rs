@@ -79,11 +79,15 @@ impl PluginUnit {
 
             match self.mode {
                 Mode::Gui => {
-                    self.logs.push(format!(
-                        "{} {plugin:>10}: [{}] {msg}",
-                        time::ts_str(ts),
-                        common::level_str(level)
-                    ));
+                    let msgs: Vec<&str> = msg.split('\n').collect();
+
+                    for msg in msgs {
+                        self.logs.push(format!(
+                            "{} {plugin:>10}: [{}] {msg}",
+                            time::ts_str(ts),
+                            common::level_str(level)
+                        ));
+                    }
                     if self.logs.len() > LOG_CAPACITY {
                         self.logs.remove(0);
                     }
@@ -117,45 +121,6 @@ impl PluginUnit {
         }
     }
 
-    async fn handle_action_gui(&mut self, cmd_parts: &[String]) {
-        if let (Some(panel_type), Some(x), Some(y), Some(w), Some(h)) = (
-            cmd_parts.get(3),
-            cmd_parts.get(4),
-            cmd_parts.get(5),
-            cmd_parts.get(6),
-            cmd_parts.get(7),
-        ) {
-            let panel_type = panel_type.parse::<panel::PanelType>().unwrap();
-            let x = x.parse::<u16>().unwrap();
-            let y = y.parse::<u16>().unwrap();
-            let w = w.parse::<u16>().unwrap();
-            let h = h.parse::<u16>().unwrap();
-
-            self.panel_info = panel::PanelInfo {
-                panel_type,
-                x,
-                y,
-                w,
-                h,
-            };
-
-            self.cmd(format!(
-                "{} {} {} {MODULE}",
-                consts::P,
-                plugins_main::MODULE,
-                Action::InsertPanel,
-            ))
-            .await;
-        } else {
-            self.warn(common::MsgTemplate::MissingParameters.format(
-                "<panel_type> <x> <y> <width> <height>",
-                Action::Gui.as_ref(),
-                &cmd_parts.join(" "),
-            ))
-            .await;
-        }
-    }
-
     async fn handle_action_dest(&mut self, cmd_parts: &[String]) {
         if let Some(dest) = cmd_parts.get(3) {
             self.dest = Some(dest.to_string());
@@ -176,60 +141,6 @@ impl PluginUnit {
         .await;
     }
 
-    async fn handle_action_key_alt(&mut self, key: Key) {
-        match key {
-            Key::AltUp => {
-                if self.panel_info.y > 0 {
-                    self.panel_info.y -= 1;
-                }
-            }
-            Key::AltDown => {
-                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
-                self.panel_info.y += 1;
-                // }
-            }
-            Key::AltLeft => {
-                if self.panel_info.x > 0 {
-                    self.panel_info.x -= 1;
-                }
-            }
-            Key::AltRight => {
-                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
-                self.panel_info.x += 1;
-                // }
-            }
-            Key::AltW => {
-                if self.panel_info.h > 3 {
-                    self.panel_info.h -= 1;
-                }
-            }
-            Key::AltS => {
-                // if self.panel_info.y + self.panel_info.h < globals::get_terminal_height() {
-                self.panel_info.h += 1;
-                // }
-            }
-            Key::AltA => {
-                if self.panel_info.w > 10 {
-                    self.panel_info.w -= 1;
-                }
-            }
-            Key::AltD => {
-                // if self.panel_info.x + self.panel_info.w < globals::get_terminal_width() {
-                self.panel_info.w += 1;
-                // }
-            }
-            _ => {}
-        }
-
-        self.cmd(format!(
-            "{} {} {} {MODULE}",
-            consts::P,
-            plugins_main::MODULE,
-            Action::Redraw,
-        ))
-        .await;
-    }
-
     async fn handle_action_key(&mut self, cmd_parts: &[String]) {
         if let Some(key) = cmd_parts.get(3) {
             match key.parse::<Key>() {
@@ -241,7 +152,22 @@ impl PluginUnit {
                 | Ok(k @ Key::AltW)
                 | Ok(k @ Key::AltS)
                 | Ok(k @ Key::AltA)
-                | Ok(k @ Key::AltD) => self.handle_action_key_alt(k).await,
+                | Ok(k @ Key::AltD) => {
+                    (
+                        self.panel_info.x,
+                        self.panel_info.y,
+                        self.panel_info.w,
+                        self.panel_info.h,
+                    ) = self
+                        .handle_action_key_position(
+                            k,
+                            self.panel_info.x,
+                            self.panel_info.y,
+                            self.panel_info.w,
+                            self.panel_info.h,
+                        )
+                        .await;
+                }
                 _ => (),
             }
         }
@@ -267,7 +193,11 @@ impl plugins_main::Plugin for PluginUnit {
             Action::Help => self.handle_action_help().await,
             Action::Show => self.handle_action_show().await,
             Action::Log => self.handle_action_log(msg.ts, &msg.plugin, cmd_parts).await,
-            Action::Gui => self.handle_action_gui(cmd_parts).await,
+            Action::Gui => {
+                if let Ok(panel_info) = self.handle_action_gui(cmd_parts).await {
+                    self.panel_info = panel_info;
+                }
+            }
             Action::Dest => self.handle_action_dest(cmd_parts).await,
             Action::Key => self.handle_action_key(cmd_parts).await,
             _ => {

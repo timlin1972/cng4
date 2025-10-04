@@ -86,45 +86,6 @@ impl PluginUnit {
         }
     }
 
-    async fn handle_action_gui(&mut self, cmd_parts: &[String]) {
-        if let (Some(panel_type), Some(x), Some(y), Some(w), Some(h)) = (
-            cmd_parts.get(3),
-            cmd_parts.get(4),
-            cmd_parts.get(5),
-            cmd_parts.get(6),
-            cmd_parts.get(7),
-        ) {
-            let panel_type = panel_type.parse::<panel::PanelType>().unwrap();
-            let x = x.parse::<u16>().unwrap();
-            let y = y.parse::<u16>().unwrap();
-            let w = w.parse::<u16>().unwrap();
-            let h = h.parse::<u16>().unwrap();
-
-            self.panel_info = panel::PanelInfo {
-                panel_type,
-                x,
-                y,
-                w,
-                h,
-            };
-
-            self.cmd(format!(
-                "{} {} {} {MODULE}",
-                consts::P,
-                plugins_main::MODULE,
-                Action::InsertPanel,
-            ))
-            .await;
-        } else {
-            self.warn(common::MsgTemplate::MissingParameters.format(
-                "<panel_type> <x> <y> <width> <height>",
-                Action::Gui.as_ref(),
-                &cmd_parts.join(" "),
-            ))
-            .await;
-        }
-    }
-
     async fn handle_action_output_update(&mut self, cmd_parts: &[String]) {
         if let Some(output) = cmd_parts.get(3) {
             self.output = output.clone();
@@ -208,7 +169,11 @@ impl plugins_main::Plugin for PluginUnit {
             Action::Help => self.handle_action_help().await,
             Action::Show => self.handle_action_show().await,
             Action::Key => self.handle_action_key(cmd_parts).await,
-            Action::Gui => self.handle_action_gui(cmd_parts).await,
+            Action::Gui => {
+                if let Ok(panel_info) = self.handle_action_gui(cmd_parts).await {
+                    self.panel_info = panel_info;
+                }
+            }
             Action::OutputUpdate => self.handle_action_output_update(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))

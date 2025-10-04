@@ -5,6 +5,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use ratatui::{
     Frame,
+    crossterm::{cursor::SetCursorStyle, execute},
+    layout::Position,
     style::{Color, Style},
     text::{Line, Span, Text},
     widgets::{Block, BorderType, Borders, Clear, Paragraph},
@@ -12,9 +14,10 @@ use ratatui::{
 use tokio::sync::mpsc::Sender;
 
 use crate::consts;
+use crate::globals;
 use crate::messages::{Action, Key, Msg};
 use crate::plugins::plugins_main::{self, Plugin};
-use crate::utils::{common, panel};
+use crate::utils::{api, common, nas, panel};
 
 pub const MODULE: &str = "editor";
 
@@ -22,8 +25,9 @@ pub const MODULE: &str = "editor";
 pub struct PluginUnit {
     msg_tx: Sender<Msg>,
     file_name: String,
-    output: String,
+    output: Vec<String>,
     panel_info: panel::PanelInfo,
+    cursor_position: (u16, u16), // (x, y)
 }
 
 impl PluginUnit {
@@ -31,7 +35,7 @@ impl PluginUnit {
         let myself = Self {
             msg_tx,
             file_name: String::new(),
-            output: String::new(),
+            output: vec![],
             panel_info: panel::PanelInfo {
                 panel_type: panel::PanelType::Normal,
                 x: 0,
@@ -39,6 +43,7 @@ impl PluginUnit {
                 w: 0,
                 h: 0,
             },
+            cursor_position: (0, 0),
         };
 
         myself.info(consts::NEW.to_string()).await;
@@ -64,45 +69,15 @@ impl PluginUnit {
 
     async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
-    }
-
-    async fn handle_action_gui(&mut self, cmd_parts: &[String]) {
-        if let (Some(panel_type), Some(x), Some(y), Some(w), Some(h)) = (
-            cmd_parts.get(3),
-            cmd_parts.get(4),
-            cmd_parts.get(5),
-            cmd_parts.get(6),
-            cmd_parts.get(7),
-        ) {
-            let panel_type = panel_type.parse::<panel::PanelType>().unwrap();
-            let x = x.parse::<u16>().unwrap();
-            let y = y.parse::<u16>().unwrap();
-            let w = w.parse::<u16>().unwrap();
-            let h = h.parse::<u16>().unwrap();
-
-            self.panel_info = panel::PanelInfo {
-                panel_type,
-                x,
-                y,
-                w,
-                h,
-            };
-
-            self.cmd(format!(
-                "{} {} {} {MODULE}",
-                consts::P,
-                plugins_main::MODULE,
-                Action::InsertPanel,
-            ))
+        self.info(format!(
+            "  {} <file_name> - Open a file in the editor",
+            Action::Open
+        ))
+        .await;
+        self.info(format!("  {} - Sync files with the server", Action::Sync))
             .await;
-        } else {
-            self.warn(common::MsgTemplate::MissingParameters.format(
-                "<panel_type> <x> <y> <width> <height>",
-                Action::Gui.as_ref(),
-                &cmd_parts.join(" "),
-            ))
+        self.info(format!("  {} <file_name> - Remove a file", Action::Remove))
             .await;
-        }
     }
 
     async fn handle_action_open(&mut self, cmd_parts: &[String]) {
@@ -159,7 +134,8 @@ impl PluginUnit {
             return;
         }
 
-        self.output = buffer;
+        self.output = buffer.lines().map(String::from).collect();
+        self.cursor_position = (0, 0);
 
         self.cmd(format!(
             "{} {} {}",
@@ -188,14 +164,231 @@ impl PluginUnit {
         .await;
     }
 
+    async fn handle_action_key_home(&mut self) {
+        self.cursor_position.0 = 0;
+    }
+    async fn handle_action_key_end(&mut self) {
+        self.cursor_position.0 = self.output[self.cursor_position.1 as usize].len() as u16;
+    }
+
+    async fn handle_action_key_up(&mut self) {
+        if self.cursor_position.1 > 0 {
+            self.cursor_position.1 -= 1;
+            let line_length = self.output[self.cursor_position.1 as usize].len() as u16;
+            if self.cursor_position.0 > line_length {
+                self.cursor_position.0 = line_length;
+            }
+        } else {
+            self.cursor_position.0 = 0;
+        }
+    }
+
+    async fn handle_action_key_down(&mut self) {
+        if (self.cursor_position.1 as usize) < self.output.len() - 1 {
+            //TODO: -1?
+            self.cursor_position.1 += 1;
+            let line_length = self.output[self.cursor_position.1 as usize].len() as u16;
+            if self.cursor_position.0 > line_length {
+                self.cursor_position.0 = line_length;
+            }
+        } else {
+            self.cursor_position.0 = self.output[self.cursor_position.1 as usize].len() as u16;
+        }
+    }
+
+    async fn handle_action_key_left(&mut self) {
+        if self.cursor_position.0 > 0 {
+            self.cursor_position.0 -= 1;
+        } else if self.cursor_position.1 > 0 {
+            self.cursor_position.1 -= 1;
+            self.cursor_position.0 = self.output[self.cursor_position.1 as usize].len() as u16;
+        }
+    }
+
+    async fn handle_action_key_right(&mut self) {
+        let line_length = self.output[self.cursor_position.1 as usize].len() as u16;
+        if self.cursor_position.0 < line_length {
+            self.cursor_position.0 += 1;
+        } else if (self.cursor_position.1 as usize) < self.output.len() - 1 {
+            self.cursor_position.1 += 1;
+            self.cursor_position.0 = 0;
+        }
+    }
+
     async fn handle_action_key(&mut self, cmd_parts: &[String]) {
         if let Some(key) = cmd_parts.get(3) {
             #[allow(clippy::single_match)]
             match key.parse::<Key>() {
                 Ok(Key::ControlX) => self.handle_action_key_control_x().await,
+                Ok(Key::Home) => self.handle_action_key_home().await,
+                Ok(Key::End) => self.handle_action_key_end().await,
+                Ok(Key::Up) => self.handle_action_key_up().await,
+                Ok(Key::Down) => self.handle_action_key_down().await,
+                Ok(Key::Left) => self.handle_action_key_left().await,
+                Ok(Key::Right) => self.handle_action_key_right().await,
+                Ok(k @ Key::AltUp)
+                | Ok(k @ Key::AltDown)
+                | Ok(k @ Key::AltLeft)
+                | Ok(k @ Key::AltRight)
+                | Ok(k @ Key::AltW)
+                | Ok(k @ Key::AltS)
+                | Ok(k @ Key::AltA)
+                | Ok(k @ Key::AltD) => {
+                    (
+                        self.panel_info.x,
+                        self.panel_info.y,
+                        self.panel_info.w,
+                        self.panel_info.h,
+                    ) = self
+                        .handle_action_key_position(
+                            k,
+                            self.panel_info.x,
+                            self.panel_info.y,
+                            self.panel_info.w,
+                            self.panel_info.h,
+                        )
+                        .await;
+                }
                 _ => (),
             }
         }
+    }
+
+    async fn sync(&mut self) {
+        // get folder_meta from server first
+        if let Some(server_ip) = globals::get_server_ip() {
+            let remote_folder_meta = match api::post_get_folder_meta(
+                &self.msg_tx,
+                MODULE,
+                &server_ip,
+                &api::GetFolderMetaRequest {
+                    foldername: consts::NAS_EDITOR_FOLDER
+                        .trim_start_matches('/')
+                        .to_string(),
+                },
+            )
+            .await
+            {
+                Ok(fm) => fm,
+                Err(e) => {
+                    self.warn(format!("Failed to get folder meta from server: {e}"))
+                        .await;
+                    return;
+                }
+            };
+
+            let local_folder_meta = nas::get_folder_meta(consts::NAS_EDITOR_FOLDER);
+
+            // if folder is the same
+            if remote_folder_meta.hash == local_folder_meta.hash {
+                self.info("Server == Local".to_string()).await;
+                return;
+            }
+
+            // upload changed files
+            for local_file in &local_folder_meta.files {
+                let remote_file = remote_folder_meta
+                    .files
+                    .iter()
+                    .find(|f| f.filename == local_file.filename);
+
+                let file_path = format!("{}/{}", consts::NAS_EDITOR_FOLDER, local_file.filename);
+
+                match remote_file {
+                    None => {
+                        self.info(format!("Server <= Local: `{}`", local_file.filename))
+                            .await;
+                        api::upload_file(&self.msg_tx, MODULE, &server_ip, &file_path, &file_path)
+                            .await;
+                    }
+                    Some(remote_file) => {
+                        if remote_file.hash != local_file.hash {
+                            if remote_file.mtime < local_file.mtime {
+                                self.info(format!("Server <= Local: `{}`", local_file.filename))
+                                    .await;
+
+                                api::upload_file(
+                                    &self.msg_tx,
+                                    MODULE,
+                                    &server_ip,
+                                    &file_path,
+                                    &file_path,
+                                )
+                                .await;
+                            } else {
+                                self.info(format!("Server => Local: `{}`", local_file.filename))
+                                    .await;
+
+                                api::download_file(&self.msg_tx, MODULE, &server_ip, &file_path)
+                                    .await;
+                            }
+                        } else {
+                            self.info(format!("Server == Local: `{}`", local_file.filename))
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            for remote_file in &remote_folder_meta.files {
+                let local_file = local_folder_meta
+                    .files
+                    .iter()
+                    .find(|f| f.filename == remote_file.filename);
+                if local_file.is_none() {
+                    let file_path =
+                        format!("{}/{}", consts::NAS_EDITOR_FOLDER, remote_file.filename);
+
+                    self.info(format!("Server => Local: `{}`", remote_file.filename))
+                        .await;
+                    api::download_file(&self.msg_tx, MODULE, &server_ip, &file_path).await;
+                }
+            }
+        } else {
+            self.warn(consts::SERVER_IP_NOT_SET.to_string()).await;
+        }
+    }
+
+    async fn handle_action_sync(&mut self) {
+        self.info(Action::Sync.to_string()).await;
+        self.sync().await;
+    }
+
+    async fn handle_action_remove(&mut self, cmd_parts: &[String]) {
+        self.info(Action::Remove.to_string()).await;
+
+        let file_name = match cmd_parts.get(3) {
+            Some(name) => name,
+            None => {
+                self.warn(common::MsgTemplate::MissingParameters.format(
+                    "<file_name>",
+                    Action::Remove.as_ref(),
+                    &cmd_parts.join(" "),
+                ))
+                .await;
+                return;
+            }
+        };
+
+        let full_path = format!("{}/{}", consts::NAS_EDITOR_FOLDER, file_name);
+
+        if fs::remove_file(&full_path).is_err() {
+            self.warn(format!("Failed to remove file `{full_path}`"))
+                .await;
+            return;
+        }
+
+        self.info(format!("File `{full_path}` removed")).await;
+
+        api::post_remove(
+            &self.msg_tx,
+            MODULE,
+            &globals::get_server_ip().unwrap_or_default(),
+            &api::RemoveRequest {
+                filename: full_path.trim_start_matches('/').to_string(),
+            },
+        )
+        .await;
     }
 }
 
@@ -243,15 +436,14 @@ impl plugins_main::Plugin for PluginUnit {
         // Draw the panel content
         let area_height = panel_area.height;
 
-        let output = &self.output.lines().collect::<Vec<&str>>();
-
-        let scroll_offset = if output.len() as u16 > (area_height - 3) {
-            output.len() as u16 - (area_height - 3)
+        let scroll_offset = if self.output.len() as u16 > (area_height - 3) {
+            self.output.len() as u16 - (area_height - 3)
         } else {
             0
         };
 
-        let lines: Vec<Line> = output
+        let lines: Vec<Line> = self
+            .output
             .iter()
             .flat_map(|entry| {
                 entry
@@ -266,15 +458,30 @@ impl plugins_main::Plugin for PluginUnit {
             .scroll((scroll_offset, 0));
 
         frame.render_widget(text, panel_block.inner(panel_area));
+
+        // cursor for popup panel
+        let mut stdout = std::io::stdout();
+        execute!(stdout, SetCursorStyle::DefaultUserShape).unwrap();
+
+        frame.set_cursor_position(Position::new(
+            panel_x + self.cursor_position.0 + 1,
+            panel_y + self.cursor_position.1 + 1,
+        ));
     }
 
     async fn handle_action(&mut self, action: Action, cmd_parts: &[String], _msg: &Msg) {
         match action {
             Action::Help => self.handle_action_help().await,
             Action::Show => self.handle_action_show().await,
-            Action::Gui => self.handle_action_gui(cmd_parts).await,
+            Action::Gui => {
+                if let Ok(panel_info) = self.handle_action_gui(cmd_parts).await {
+                    self.panel_info = panel_info;
+                }
+            }
             Action::Open => self.handle_action_open(cmd_parts).await,
             Action::Key => self.handle_action_key(cmd_parts).await,
+            Action::Sync => self.handle_action_sync().await,
+            Action::Remove => self.handle_action_remove(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

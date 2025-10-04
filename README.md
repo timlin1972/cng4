@@ -104,6 +104,8 @@ curl -X POST http://localhost:9759/cmd -H "Content-Type: application/json" -d '{
 curl -X POST http://100.97.64.1:9759/cmd -H "Content-Type: application/json" -d '{"cmd": "exit"}'
 ```
 
+- /remove
+
 # Keyboard
 
 - TAB
