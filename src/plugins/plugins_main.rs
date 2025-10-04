@@ -289,6 +289,16 @@ impl Plugins {
     async fn handle_action_key_tab(&mut self) {
         if self.active_popup.is_none() {
             self.active_panel = (self.active_panel + 1) % self.panels.len();
+            loop {
+                let panel = &self.panels[self.active_panel];
+                if let Some(plugin) = self.get_plugin(panel) {
+                    if plugin.panel_info().panel_type == panel::PanelType::Popup {
+                        self.active_panel = (self.active_panel + 1) % self.panels.len();
+                        continue;
+                    }
+                    break;
+                }
+            }
         }
 
         self.redraw();
@@ -460,5 +470,10 @@ impl Plugins {
 
     pub fn get_plugin_mut(&mut self, name: &str) -> Option<&mut Box<dyn Plugin + Send + Sync>> {
         self.plugins.iter_mut().find(|p| p.name() == name)
+    }
+
+    #[allow(clippy::borrowed_box)]
+    pub fn get_plugin(&self, name: &str) -> Option<&Box<dyn Plugin + Send + Sync>> {
+        self.plugins.iter().find(|p| p.name() == name)
     }
 }

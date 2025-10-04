@@ -129,6 +129,8 @@ pub enum Action {
     InsertPanel,
     #[strum(serialize = "redraw")]
     Redraw,
+    #[strum(serialize = "sync")]
+    Sync,
 }
 
 #[derive(Debug, Clone)]

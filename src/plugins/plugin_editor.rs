@@ -12,9 +12,10 @@ use ratatui::{
 use tokio::sync::mpsc::Sender;
 
 use crate::consts;
+use crate::globals;
 use crate::messages::{Action, Key, Msg};
 use crate::plugins::plugins_main::{self, Plugin};
-use crate::utils::{common, panel};
+use crate::utils::{api, common, nas, panel};
 
 pub const MODULE: &str = "editor";
 
@@ -197,6 +198,106 @@ impl PluginUnit {
             }
         }
     }
+
+    async fn sync(&mut self) {
+        // get folder_meta from server first
+        if let Some(server_ip) = globals::get_server_ip() {
+            let remote_folder_meta = match api::post_get_folder_meta(
+                &self.msg_tx,
+                MODULE,
+                &server_ip,
+                &api::GetFolderMetaRequest {
+                    foldername: consts::NAS_EDITOR_FOLDER
+                        .trim_start_matches('/')
+                        .to_string(),
+                },
+            )
+            .await
+            {
+                Ok(fm) => fm,
+                Err(e) => {
+                    self.warn(format!("Failed to get folder meta from server: {e}"))
+                        .await;
+                    return;
+                }
+            };
+
+            let local_folder_meta = nas::get_folder_meta(consts::NAS_EDITOR_FOLDER);
+
+            // if folder is the same
+            if remote_folder_meta.hash == local_folder_meta.hash {
+                self.info("Server == Local".to_string()).await;
+                return;
+            }
+
+            // upload changed files
+            for local_file in &local_folder_meta.files {
+                let remote_file = remote_folder_meta
+                    .files
+                    .iter()
+                    .find(|f| f.filename == local_file.filename);
+
+                let file_path = format!("{}/{}", consts::NAS_EDITOR_FOLDER, local_file.filename);
+
+                match remote_file {
+                    None => {
+                        self.info(format!("Server <= Local: `{}`", local_file.filename))
+                            .await;
+                        api::upload_file(&self.msg_tx, MODULE, &server_ip, &file_path, &file_path)
+                            .await;
+                    }
+                    Some(remote_file) => {
+                        if remote_file.hash != local_file.hash {
+                            if remote_file.mtime < local_file.mtime {
+                                self.info(format!("Server <= Local: `{}`", local_file.filename))
+                                    .await;
+
+                                api::upload_file(
+                                    &self.msg_tx,
+                                    MODULE,
+                                    &server_ip,
+                                    &file_path,
+                                    &file_path,
+                                )
+                                .await;
+                            } else {
+                                self.info(format!("Server => Local: `{}`", local_file.filename))
+                                    .await;
+
+                                api::download_file(&self.msg_tx, MODULE, &server_ip, &file_path)
+                                    .await;
+                            }
+                        } else {
+                            self.info(format!("Server == Local: `{}`", local_file.filename))
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            for remote_file in &remote_folder_meta.files {
+                let local_file = local_folder_meta
+                    .files
+                    .iter()
+                    .find(|f| f.filename == remote_file.filename);
+                if local_file.is_none() {
+                    let file_path =
+                        format!("{}/{}", consts::NAS_EDITOR_FOLDER, remote_file.filename);
+
+                    self.info(format!("Server => Local: `{}`", remote_file.filename))
+                        .await;
+                    api::download_file(&self.msg_tx, MODULE, &server_ip, &file_path).await;
+                }
+            }
+        } else {
+            self.warn(consts::SERVER_IP_NOT_SET.to_string()).await;
+        }
+    }
+
+    async fn handle_action_sync(&mut self) {
+        self.info(Action::Sync.to_string()).await;
+        self.sync().await;
+    }
 }
 
 #[async_trait]
@@ -275,6 +376,7 @@ impl plugins_main::Plugin for PluginUnit {
             Action::Gui => self.handle_action_gui(cmd_parts).await,
             Action::Open => self.handle_action_open(cmd_parts).await,
             Action::Key => self.handle_action_key(cmd_parts).await,
+            Action::Sync => self.handle_action_sync().await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

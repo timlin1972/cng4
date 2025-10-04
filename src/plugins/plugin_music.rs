@@ -4,9 +4,6 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use base64::Engine as _;
-use base64::engine::general_purpose;
-use chrono::{DateTime, Utc};
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinSet;
 use walkdir::WalkDir;
@@ -15,7 +12,7 @@ use crate::consts;
 use crate::globals;
 use crate::messages::{self as msgs, Action, Msg};
 use crate::plugins::plugins_main::{self, Plugin};
-use crate::utils::{api, common, ffmpeg, yt_dlp};
+use crate::utils::{api, common, ffmpeg, nas, yt_dlp};
 
 pub const MODULE: &str = "music";
 
@@ -58,6 +55,9 @@ impl PluginUnit {
         for file in files {
             self.info(file).await;
         }
+
+        let folder_meta = nas::get_folder_meta(consts::NAS_MUSIC_FOLDER);
+        self.info(format!("  Folder meta: {}", folder_meta)).await;
     }
 
     async fn handle_action_download(&mut self, cmd_parts: &[String]) {
@@ -99,8 +99,7 @@ impl PluginUnit {
         self.info(Action::Upload.to_string()).await;
 
         if globals::get_server_ip().is_none() {
-            self.warn("Server IP is not set. Please set it first.".to_string())
-                .await;
+            self.warn(consts::SERVER_IP_NOT_SET.to_string()).await;
             return;
         }
 
@@ -121,23 +120,17 @@ impl PluginUnit {
             {
                 let source_path = PathBuf::from(entry.path());
                 let source_path_no_prefix = source_path.strip_prefix(source_dir).unwrap();
-                let bytes = fs::read(&source_path).unwrap();
                 let target_path = target_dir.join(source_path_no_prefix);
 
-                let encoded = general_purpose::STANDARD.encode(&bytes);
-                let mtime = fs::metadata(&source_path)
-                    .and_then(|meta| meta.modified())
-                    .map(|time| DateTime::<Utc>::from(time).to_rfc3339())
-                    .unwrap_or_else(|_| Utc::now().to_rfc3339());
-
-                let target_path = target_path.clone();
                 let server_ip = server_ip.clone();
                 let msg_tx_clone_clone = msg_tx_clone.clone();
 
                 count += 1;
                 let count_clone = count;
+
                 join_set.spawn(async move {
                     let filename = target_path.to_string_lossy().to_string();
+
                     msgs::info(
                         &msg_tx_clone_clone,
                         MODULE,
@@ -147,19 +140,16 @@ impl PluginUnit {
                         ),
                     )
                     .await;
-                    api::post_upload(
+
+                    api::upload_file(
                         &msg_tx_clone_clone,
                         MODULE,
                         server_ip.as_str(),
-                        &api::UploadRequest {
-                            data: api::UploadData {
-                                filename: filename.clone(),
-                                content: encoded,
-                                mtime,
-                            },
-                        },
+                        entry.path().to_str().unwrap(),
+                        &filename,
                     )
                     .await;
+
                     msgs::info(
                         &msg_tx_clone_clone,
                         MODULE,
@@ -180,7 +170,7 @@ impl PluginUnit {
             msgs::info(
                 &msg_tx_clone,
                 MODULE,
-                &format!("  Uploaded {count} (all) files."),
+                &format!("  Uploaded {count} (all) files done."),
             )
             .await;
         });
