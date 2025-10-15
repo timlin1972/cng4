@@ -16,6 +16,15 @@ do
 	# cd ..
 
 	# cd server
-	$HOME/.cargo/bin/cargo run
+	CARGO_BIN=$(which cargo)
+
+	if [ -z "$CARGO_BIN" ]; then
+		echo "cargo not found in PATH"
+		exit 1
+	fi
+
+	"$CARGO_BIN" run
 	# cd ..
 done
+
+

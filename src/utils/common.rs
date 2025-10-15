@@ -1,6 +1,8 @@
 use std::env;
 use std::path::Path;
+use std::process::Command;
 
+use regex::Regex;
 use sysinfo::Networks;
 use unicode_width::UnicodeWidthStr;
 use walkdir::WalkDir;
@@ -100,6 +102,25 @@ pub fn get_tailscale_ip() -> Option<String> {
                 }
             }
         }
+    }
+
+    let output = Command::new("ifconfig")
+        .output()
+        .expect("Failed to execute ifconfig");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // 找出 tun0 區塊
+    let tun0_block = stdout
+        .split("\n\n")
+        .find(|block| block.contains("tun0"))
+        .expect("tun0 interface not found");
+
+    // 用 regex 抓出 inet IP
+    let re = Regex::new(r"inet (\d+\.\d+\.\d+\.\d+)").unwrap();
+    if let Some(caps) = re.captures(tun0_block) {
+        let ip = &caps[1];
+        return Some(ip.to_string());
     }
 
     None
