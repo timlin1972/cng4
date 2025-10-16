@@ -135,6 +135,8 @@ pub enum Action {
     Redraw,
     #[strum(serialize = "sync")]
     Sync,
+    #[strum(serialize = "wake")]
+    Wake,
 }
 
 #[derive(Debug, Clone)]

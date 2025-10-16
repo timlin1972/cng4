@@ -12,4 +12,5 @@ pub mod plugin_script;
 pub mod plugin_system;
 pub mod plugin_weather;
 pub mod plugin_web;
+pub mod plugin_wol;
 pub mod plugins_main;

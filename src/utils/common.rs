@@ -2,6 +2,7 @@ use std::env;
 use std::path::Path;
 use std::process::Command;
 
+use anyhow::Result;
 use regex::Regex;
 use sysinfo::Networks;
 use unicode_width::UnicodeWidthStr;
@@ -176,4 +177,17 @@ pub fn shorten(s: &str, prefix: usize, suffix: usize) -> String {
             .collect();
         format!("{prefix}...{suffix}")
     }
+}
+
+pub fn parse_mac(s: &str) -> Result<[u8; 6]> {
+    let parts: Vec<u8> = s
+        .split(':')
+        .map(|x| u8::from_str_radix(x, 16))
+        .collect::<Result<_, _>>()?;
+
+    if parts.len() != 6 {
+        return Err(anyhow::anyhow!("Invalid MAC address length"));
+    }
+
+    Ok([parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]])
 }

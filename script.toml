@@ -44,6 +44,10 @@ p plugins insert music
 p plugins insert editor
 p editor gui popup 10 10 80 80
 
+# - wol
+p plugins insert wol
+p wol add linds 90:09:d0:64:4e:a4
+
 p plugins insert gui
 """
 
@@ -72,6 +76,10 @@ p weather add 拜縣 19.3583 98.4418
 
 p plugins insert web
 p plugins insert music
+
+# - wol
+p plugins insert wol
+p wol add linds 90:09:d0:64:4e:a4
 
 # - cli
 p plugins insert cli

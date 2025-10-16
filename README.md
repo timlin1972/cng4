@@ -66,6 +66,7 @@ Description:
 1. script
 1. weather
 1. editor
+1. wol
 
 # Configuration file
 
