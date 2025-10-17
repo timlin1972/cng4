@@ -36,6 +36,7 @@ impl PluginUnit {
 
     async fn handle_action_show(&self) {
         self.info(Action::Show.to_string()).await;
+
         if self.wol.is_empty() {
             self.info("  No devices configured.".to_string()).await;
         } else {
@@ -57,6 +58,7 @@ impl PluginUnit {
 
     async fn handle_action_help(&self) {
         self.info(Action::Help.to_string()).await;
+
         self.info(format!("  {} {ADD_PARAMS}   Add a new device", Action::Add))
             .await;
         self.info(format!(

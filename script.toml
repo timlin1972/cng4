@@ -39,6 +39,7 @@ p weather add 拜縣 19.3583 98.4418
 # - plugins
 p plugins insert web
 p plugins insert music
+p plugins insert ping
 
 # - editor
 p plugins insert editor
@@ -76,6 +77,7 @@ p weather add 拜縣 19.3583 98.4418
 
 p plugins insert web
 p plugins insert music
+p plugins insert ping
 
 # - wol
 p plugins insert wol

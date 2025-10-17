@@ -676,15 +676,9 @@ impl plugins_main::Plugin for PluginUnit {
         frame.render_widget(panel_block.clone(), panel_area);
 
         // Draw the panel content
-        let area_height = panel_area.height;
-
         let output = &self.output.lines().collect::<Vec<&str>>();
 
-        let scroll_offset = if output.len() as u16 > (area_height - 3) {
-            output.len() as u16 - (area_height - 3)
-        } else {
-            0
-        };
+        let scroll_offset = 0;
 
         let lines: Vec<Line> = output
             .iter()

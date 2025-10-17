@@ -127,7 +127,7 @@ fn remove_dir(remove_dir: &str) {
     }
 }
 
-async fn download(url: &str, output_dir: &str) -> Result<()> {
+pub async fn download(url: &str, output_dir: &str) -> Result<()> {
     // prepare cache dir
     remove_dir(YT_DLP_CACHE);
     let _ = std::fs::create_dir_all(YT_DLP_CACHE);

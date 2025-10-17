@@ -67,6 +67,7 @@ Description:
 1. weather
 1. editor
 1. wol
+1. ping
 
 # Configuration file
 

@@ -137,6 +137,8 @@ pub enum Action {
     Sync,
     #[strum(serialize = "wake")]
     Wake,
+    #[strum(serialize = "ping")]
+    Ping,
 }
 
 #[derive(Debug, Clone)]

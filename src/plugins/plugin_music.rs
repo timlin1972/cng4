@@ -184,6 +184,131 @@ impl PluginUnit {
         let _ = fs::remove_dir_all(folder_path);
         let _ = fs::create_dir_all(folder_path);
     }
+
+    async fn handle_action_add(&self, cmd_parts: &[String]) {
+        self.info(Action::Add.to_string()).await;
+
+        if !self.is_available {
+            self.warn("Not available".to_string()).await;
+            return;
+        }
+
+        if globals::get_server_ip().is_none() {
+            self.warn(consts::SERVER_IP_NOT_SET.to_string()).await;
+            return;
+        }
+
+        if let Some(url) = cmd_parts.get(3) {
+            let url = url.to_string();
+            let msg_tx_clone = self.msg_tx.clone();
+
+            let server_ip = globals::get_server_ip().unwrap();
+
+            let source_dir = Path::new(consts::NAS_MUSIC_FOLDER);
+            let target_dir = Path::new(consts::NAS_UPLOAD_FOLDER);
+
+            tokio::spawn(async move {
+                // step 1: download
+                msgs::info(
+                    &msg_tx_clone,
+                    MODULE,
+                    &format!("Downloading from `{}`...", common::shorten(&url, 5, 6)),
+                )
+                .await;
+
+                match yt_dlp::download(&url, consts::NAS_MUSIC_FOLDER).await {
+                    Ok(_) => {
+                        msgs::info(
+                            &msg_tx_clone,
+                            MODULE,
+                            &format!("Downloaded from `{}`", common::shorten(&url, 5, 6)),
+                        )
+                        .await
+                    }
+
+                    Err(e) => msgs::warn(&msg_tx_clone, MODULE, &e.to_string()).await,
+                }
+
+                // step 2: upload
+                let mut count = 0;
+                let mut join_set = JoinSet::new();
+                for entry in WalkDir::new(source_dir)
+                    .into_iter()
+                    .filter_map(Result::ok)
+                    .filter(|e| e.file_type().is_file())
+                {
+                    let source_path = PathBuf::from(entry.path());
+                    let source_path_no_prefix = source_path.strip_prefix(source_dir).unwrap();
+                    let target_path = target_dir.join(source_path_no_prefix);
+
+                    let server_ip = server_ip.clone();
+                    let msg_tx_clone_clone = msg_tx_clone.clone();
+
+                    count += 1;
+                    let count_clone = count;
+
+                    join_set.spawn(async move {
+                        let filename = target_path.to_string_lossy().to_string();
+
+                        msgs::info(
+                            &msg_tx_clone_clone,
+                            MODULE,
+                            &format!(
+                                "  Uploading file #{count_clone}: `{}`",
+                                common::shorten(&filename, 20, 0)
+                            ),
+                        )
+                        .await;
+
+                        api::upload_file(
+                            &msg_tx_clone_clone,
+                            MODULE,
+                            server_ip.as_str(),
+                            entry.path().to_str().unwrap(),
+                            &filename,
+                        )
+                        .await;
+
+                        msgs::info(
+                            &msg_tx_clone_clone,
+                            MODULE,
+                            &format!(
+                                "  Uploaded file #{count_clone}: `{}`",
+                                common::shorten(&filename, 20, 0)
+                            ),
+                        )
+                        .await;
+                    });
+                }
+
+                while let Some(res) = join_set.join_next().await {
+                    if let Err(e) = res {
+                        msgs::warn(&msg_tx_clone, MODULE, &format!("A upload task failed: {e}"))
+                            .await;
+                    }
+                }
+                msgs::info(
+                    &msg_tx_clone,
+                    MODULE,
+                    &format!("  Uploaded {count} (all) files done."),
+                )
+                .await;
+
+                // step 3: remove
+                // remove all files in consts::NAS_MUSIC_FOLDER
+                let folder_path = Path::new(consts::NAS_MUSIC_FOLDER);
+                let _ = fs::remove_dir_all(folder_path);
+                let _ = fs::create_dir_all(folder_path);
+            });
+        } else {
+            self.warn(common::MsgTemplate::MissingParameters.format(
+                "<url>",
+                Action::Add.as_ref(),
+                &cmd_parts.join(" "),
+            ))
+            .await;
+        }
+    }
 }
 
 #[async_trait]
@@ -203,6 +328,7 @@ impl plugins_main::Plugin for PluginUnit {
             Action::Download => self.handle_action_download(cmd_parts).await,
             Action::Upload => self.handle_action_upload().await,
             Action::Remove => self.handle_action_remove().await,
+            Action::Add => self.handle_action_add(cmd_parts).await,
             _ => {
                 self.warn(common::MsgTemplate::UnsupportedAction.format(action.as_ref(), "", ""))
                     .await

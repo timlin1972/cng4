@@ -8,6 +8,7 @@ pub mod plugin_infos;
 pub mod plugin_log;
 pub mod plugin_mqtt;
 pub mod plugin_music;
+pub mod plugin_ping;
 pub mod plugin_script;
 pub mod plugin_system;
 pub mod plugin_weather;
