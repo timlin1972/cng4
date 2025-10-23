@@ -12,7 +12,7 @@ use crate::messages::{self as msgs, Action, Data, Key, Msg};
 use crate::plugins::{
     plugin_cfg, plugin_cli, plugin_command, plugin_devices, plugin_editor, plugin_gui,
     plugin_infos, plugin_log, plugin_mqtt, plugin_music, plugin_ping, plugin_script, plugin_system,
-    plugin_weather, plugin_web, plugin_wol,
+    plugin_time, plugin_weather, plugin_web, plugin_wol,
 };
 use crate::utils::{common, panel};
 
@@ -287,6 +287,10 @@ impl Plugins {
                 as Box<dyn Plugin + Send + Sync>,
             plugin_ping::MODULE => {
                 Box::new(plugin_ping::PluginUnit::new(self.msg_tx.clone()).await?)
+                    as Box<dyn Plugin + Send + Sync>
+            }
+            plugin_time::MODULE => {
+                Box::new(plugin_time::PluginUnit::new(self.msg_tx.clone()).await?)
                     as Box<dyn Plugin + Send + Sync>
             }
             _ => return Err(anyhow::anyhow!("Unknown plugin name: `{plugin}`")),

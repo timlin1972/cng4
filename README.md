@@ -68,6 +68,7 @@ Description:
 1. editor
 1. wol
 1. ping
+1. time
 
 # Configuration file
 
