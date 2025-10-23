@@ -11,6 +11,7 @@ pub mod plugin_music;
 pub mod plugin_ping;
 pub mod plugin_script;
 pub mod plugin_system;
+pub mod plugin_time;
 pub mod plugin_weather;
 pub mod plugin_web;
 pub mod plugin_wol;

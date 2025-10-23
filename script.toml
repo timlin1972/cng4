@@ -45,11 +45,17 @@ p plugins insert ping
 p plugins insert editor
 p editor gui popup 10 10 80 80
 
+# - time
+p plugins insert time
+p time gui popup 10 10 30 20
+
 # - wol
 p plugins insert wol
 p wol add linds 90:09:d0:64:4e:a4
 
 p plugins insert gui
+
+p time open
 """
 
 script_cli = """
